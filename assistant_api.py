@@ -31,8 +31,8 @@ FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "https://tenuto-labs.github.
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_ORIGIN],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
