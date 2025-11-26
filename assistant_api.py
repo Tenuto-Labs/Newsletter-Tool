@@ -27,7 +27,7 @@ app = FastAPI(title="Ethan Mollick RAG Assistant")
 
 # ---------- CORS (so the browser frontend can call this API) ---------- #
 
-FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "http://localhost:5500")
+FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "https://tenuto-labs.github.io/Newsletter-Tool/")
 
 app.add_middleware(
     CORSMiddleware,
