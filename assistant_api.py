@@ -25,17 +25,23 @@ CHAT_MODEL = "models/gemini-2.5-pro"
 
 app = FastAPI(title="Ethan Mollick RAG Assistant")
 
-# ---------- CORS (so the browser frontend can call this API) ---------- #
-
-FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "https://tenuto-labs.github.io/Newsletter-Tool/")
+# ---------- CORS (allow everything for prototype) ---------- #
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=["*"],      # allow any origin (GitHub Pages, localhost, etc.)
+    allow_credentials=False,  # we don't use cookies/sessions
+    allow_methods=["*"],      # allow all HTTP methods
+    allow_headers=["*"],      # allow all request headers
 )
+
+# ---------- Health check/root ---------- #
+
+
+@app.get("/")
+def root():
+    return {"status": "ok", "service": "ethan-assistant"}
+
 
 # ---------- Pydantic models ---------- #
 
@@ -62,6 +68,7 @@ def embed_query(query: str) -> List[float]:
         content=query,
         task_type="retrieval_query",
     )
+    # handle both dict-style and object-style responses
     emb = result["embedding"] if isinstance(result, dict) else result.embeddings[0].values
     return emb
 
@@ -88,7 +95,7 @@ def build_context(chunks: List[dict]) -> str:
     lines = []
     for i, ch in enumerate(chunks):
         meta = f"(chunk {i+1}, posted_at={ch.get('posted_at')}, url={ch.get('linkedin_url')})"
-        text = (ch["chunk_text"] or "").strip().replace("\n", " ")
+        text = (ch.get("chunk_text") or "").strip().replace("\n", " ")
         lines.append(f"{meta}\n{text}\n")
     return "\n\n".join(lines)
 
