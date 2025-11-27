@@ -48,12 +48,12 @@ def root():
 
 class AskRequest(BaseModel):
     question: str
-    k: int = 8  # how many chunks to retrieve
+    # slightly higher default k so the model has more to work with
+    k: int = 10
 
 
 class AskResponse(BaseModel):
     answer: str
-    used_chunks: List[str]
 
 
 # ---------- Helpers ---------- #
@@ -64,9 +64,9 @@ def embed_query(query: str) -> List[float]:
     Embed the user's question using the embedding model.
     """
     result = genai.embed_content(
-        model=EMBEDDING_MODEL,
-        content=query,
-        task_type="retrieval_query",
+      model=EMBEDDING_MODEL,
+      content=query,
+      task_type="retrieval_query",
     )
     # handle both dict-style and object-style responses
     emb = result["embedding"] if isinstance(result, dict) else result.embeddings[0].values
@@ -91,12 +91,20 @@ def retrieve_chunks(query: str, k: int) -> List[dict]:
 def build_context(chunks: List[dict]) -> str:
     """
     Turn retrieved chunks into a context block for Gemini.
+    We keep light metadata (like posted_at) purely for the model's reasoning.
     """
     lines = []
     for i, ch in enumerate(chunks):
-        meta = f"(chunk {i+1}, posted_at={ch.get('posted_at')}, url={ch.get('linkedin_url')})"
-        text = (ch.get("chunk_text") or "").strip().replace("\n", " ")
-        lines.append(f"{meta}\n{text}\n")
+        posted_at = ch.get("posted_at") or "unknown date"
+        url = ch.get("linkedin_url") or "unknown url"
+        text = (ch.get("chunk_text") or "").strip()
+        if not text:
+            continue
+
+        # This is internal structure for the model, not something we tell it to repeat verbatim.
+        lines.append(
+            f"Excerpt {i+1} (posted_at={posted_at}, url={url}):\n{text}\n"
+        )
     return "\n\n".join(lines)
 
 
@@ -110,18 +118,30 @@ def ask(req: AskRequest):
 
     if not chunks:
         return AskResponse(
-            answer="I couldn't find any relevant posts in the database.",
-            used_chunks=[],
+            answer=(
+                "I couldn't find any relevant posts in the database for that question. "
+                "Try rephrasing or asking about a topic Ethan has written about, "
+                "like AI, work, management, or education."
+            )
         )
 
     context = build_context(chunks)
 
     # 2) System-style instructions
     system_prompt = (
-        "You are an assistant that answers questions ONLY based on the provided "
-        "excerpts from Ethan Mollick's LinkedIn posts (and other authors in the DB, if present).\n"
-        "- If something is not supported by the excerpts, say you don't know.\n"
-        "- When possible, mention chunk numbers or LinkedIn URLs you used."
+        "You are an assistant that answers questions using ONLY the provided excerpts from "
+        "Ethan Mollick's LinkedIn posts (and other authors in the DB, if present).\n\n"
+        "Your job is to:\n"
+        "- Synthesize and connect ideas across the excerpts.\n"
+        "- Write rich, well-structured explanations (several paragraphs or a mix of paragraphs and bullet points).\n"
+        "- Highlight key themes, tensions, and implications for practice when relevant.\n"
+        "- Stay faithful to Ethan's views and tone as reflected in the excerpts.\n"
+        "- You may generalize and extrapolate as long as it is consistent with the excerpts, "
+        "but do NOT invent views that clearly contradict them.\n\n"
+        "Very important:\n"
+        "- Do NOT mention 'chunks', 'excerpts', IDs, or say things like 'in excerpt 3' or 'the first chunk'.\n"
+        "- Do NOT talk about the retrieval process, embeddings, or the database.\n"
+        "- Just answer as if you are summarizing and interpreting Ethan's public writing."
     )
 
     # 3) Single user prompt string
@@ -130,7 +150,9 @@ def ask(req: AskRequest):
         f"User question:\n{req.question}\n\n"
         f"Here are relevant excerpts from the posts:\n\n"
         f"{context}\n\n"
-        "Using ONLY the above excerpts, answer the user's question clearly and concisely."
+        "Using ONLY the above excerpts as your factual grounding, write a detailed, thoughtful answer "
+        "to the user's question. Aim for depth and nuance rather than brevity. Where it helps, you can "
+        "organize the answer into clear sections or bullet points."
     )
 
     # 4) Call Gemini
@@ -143,5 +165,4 @@ def ask(req: AskRequest):
 
     return AskResponse(
         answer=answer_text,
-        used_chunks=[c["chunk_text"] for c in chunks],
     )
