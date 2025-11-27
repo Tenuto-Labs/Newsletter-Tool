@@ -139,14 +139,21 @@
       transform: translateY(-1px);
     }
 
+    /* Style for the Clear Chat button */
+    .clear-btn {
+      background: #64748b !important;
+      min-width: 90px;
+    }
+
+    .clear-btn:hover {
+      background: #475569 !important;
+      transform: translateY(-1px);
+    }
+
     .status-bar {
       font-size: 11px;
       padding: 4px 20px 8px;
       color: #9ca3af;
-    }
-
-    .status-bar span {
-      opacity: 0.85;
     }
   </style>
 </head>
@@ -154,7 +161,7 @@
   <div class="app-container">
     <header class="app-header">
       <h1>Ethan Mollick Assistant</h1>
-      <p>Ask questions only grounded in Ethan's LinkedIn posts. Answers are retrieved from the Supabase backend.</p>
+      <p>Ask questions grounded in Ethan's LinkedIn posts. Retrieved via Supabase + Gemini.</p>
     </header>
 
     <div id="chat" class="chat-container"></div>
@@ -166,42 +173,49 @@
     <div class="input-container">
       <textarea id="input" placeholder="Ask a question about Ethan's posts..."></textarea>
       <button id="sendBtn">Send</button>
+      <button id="clearBtn" class="clear-btn">Clear Chat</button>
     </div>
   </div>
 
   <script>
-    // === CONFIG: point this at your backend ===
-    // For local dev:
     const API_URL = "https://newsletter-tool-mfsi.onrender.com/ask";
-    // When deployed, change to your backend URL, e.g. "https://ethan-assistant.onrender.com/ask"
 
     const chatEl = document.getElementById("chat");
     const inputEl = document.getElementById("input");
     const sendBtn = document.getElementById("sendBtn");
+    const clearBtn = document.getElementById("clearBtn");
     const statusEl = document.getElementById("status");
 
     const STORAGE_KEY = "ethan_assistant_chat_history_v1";
 
     let messages = [];
 
+    // Load previous session
     function loadHistory() {
       try {
         const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          messages = JSON.parse(raw);
-        }
+        if (raw) messages = JSON.parse(raw);
       } catch (e) {
         console.warn("Failed to load chat history", e);
       }
       renderMessages();
     }
 
+    // Save updated session
     function saveHistory() {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
       } catch (e) {
         console.warn("Failed to save chat history", e);
       }
+    }
+
+    // Reset chat
+    function clearHistory() {
+      messages = [];
+      localStorage.removeItem(STORAGE_KEY);
+      renderMessages();
+      statusEl.textContent = "Chat cleared.";
     }
 
     function addMessage(role, content) {
@@ -249,31 +263,26 @@
       try {
         const resp = await fetch(API_URL, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ question, k: 8 }),
         });
 
         if (!resp.ok) {
-          const text = await resp.text();
-          console.error("API error:", text);
-          addMessage("assistant", "Sorry, something went wrong calling the backend.");
+          addMessage("assistant", "Sorry, something went wrong with the backend.");
         } else {
           const data = await resp.json();
           addMessage("assistant", data.answer || "(No answer returned)");
         }
       } catch (err) {
-        console.error(err);
-        addMessage("assistant", "Network error talking to the backend.");
+        addMessage("assistant", "Network error communicating with backend.");
       } finally {
         sendBtn.disabled = false;
         statusEl.textContent = "Ready.";
       }
     }
 
-    // Event listeners
     sendBtn.addEventListener("click", sendMessage);
+    clearBtn.addEventListener("click", clearHistory);
 
     inputEl.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
@@ -282,7 +291,6 @@
       }
     });
 
-    // Init
     loadHistory();
   </script>
 </body>
