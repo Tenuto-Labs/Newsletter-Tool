@@ -5,45 +5,219 @@
   <title>Tenuto Newsletter Development Tool</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
+    :root {
+      --bg-main: #020617;
+      --bg-panel: #0b1120;
+      --bg-panel-soft: #0f172a;
+      --bg-accent: #1d4ed8;
+      --bg-accent-soft: #1e293b;
+      --border-subtle: rgba(148, 163, 184, 0.3);
+      --text-main: #e5e7eb;
+      --text-muted: #9ca3af;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
     body {
       margin: 0;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #0f172a;
-      color: #e5e7eb;
-      display: flex;
-      justify-content: center;
-      align-items: stretch;
+      background: var(--bg-main);
+      color: var(--text-main);
       min-height: 100vh;
+      display: flex;
+      align-items: stretch;
+      justify-content: center;
     }
 
-    .app-container {
+    .app-shell {
       width: 100%;
-      max-width: 900px;
+      max-width: 1200px;
+      margin: 16px;
+      display: grid;
+      grid-template-columns: 260px minmax(0, 1fr);
+      gap: 12px;
+    }
+
+    /* Sidebar (threads) */
+
+    .sidebar {
+      background: var(--bg-panel);
+      border-radius: 16px;
+      padding: 12px;
       display: flex;
       flex-direction: column;
-      border-radius: 16px;
-      margin: 16px;
-      background: rgba(15, 23, 42, 0.95);
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .sidebar-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      gap: 8px;
+    }
+
+    .sidebar-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #cbd5f5;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .sidebar-title span.badge {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: #1d4ed8;
+      color: white;
+    }
+
+    .sidebar button {
+      border-radius: 999px;
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-accent-soft);
+      color: var(--text-main);
+      font-size: 12px;
+      padding: 6px 10px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+    }
+
+    .sidebar button:hover {
+      background: #1f2937;
+    }
+
+    .thread-list {
+      flex: 1;
+      overflow-y: auto;
+      margin-top: 6px;
+      padding-right: 4px;
+    }
+
+    .thread-item {
+      padding: 8px 10px;
+      border-radius: 10px;
+      margin-bottom: 4px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      border: 1px solid transparent;
+      font-size: 13px;
+    }
+
+    .thread-item.active {
+      background: #1d283a;
+      border-color: #3b82f6;
+    }
+
+    .thread-item-title {
+      white-space: nowrap;
       overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .thread-item-meta {
+      font-size: 11px;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .thread-footer {
+      margin-top: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .thread-footer button {
+      width: 100%;
+      justify-content: center;
+    }
+
+    /* Main chat panel */
+
+    .app-container {
+      background: rgba(15, 23, 42, 0.98);
+      border-radius: 16px;
+      display: flex;
+      flex-direction: column;
+      border: 1px solid var(--border-subtle);
+      overflow: hidden;
+      min-height: 0;
     }
 
     .app-header {
-      padding: 16px 20px;
-      background: linear-gradient(90deg, #0f172a, #1d4ed8);
-      border-bottom: 1px solid rgba(148, 163, 184, 0.3);
+      padding: 12px 16px;
+      background: radial-gradient(circle at top left, #1d4ed8 0, #0f172a 40%, #020617 100%);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .app-header-main {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+      flex-wrap: wrap;
     }
 
     .app-header h1 {
       margin: 0;
-      font-size: 20px;
+      font-size: 18px;
       font-weight: 600;
     }
 
-    .app-header p {
-      margin: 4px 0 0;
-      font-size: 12px;
+    .thread-name-display {
+      font-size: 13px;
       color: #cbd5f5;
+      opacity: 0.9;
+    }
+
+    .thread-name-display span {
+      font-weight: 600;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .header-actions button {
+      border: 1px solid rgba(148, 163, 184, 0.6);
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.7);
+      color: var(--text-main);
+      font-size: 11px;
+      padding: 4px 10px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .header-actions button:hover {
+      background: rgba(30, 64, 175, 0.8);
+    }
+
+    .app-header p {
+      margin: 0;
+      font-size: 11px;
+      color: #d1d5db;
       opacity: 0.9;
     }
 
@@ -54,6 +228,24 @@
       display: flex;
       flex-direction: column;
       gap: 12px;
+    }
+
+    .empty-state {
+      margin: auto;
+      text-align: center;
+      max-width: 420px;
+      color: var(--text-muted);
+      font-size: 13px;
+      padding: 20px;
+      border-radius: 16px;
+      border: 1px dashed rgba(148, 163, 184, 0.4);
+      background: radial-gradient(circle at top, rgba(37, 99, 235, 0.12), transparent 55%);
+    }
+
+    .empty-state h2 {
+      margin: 0 0 6px;
+      font-size: 16px;
+      color: #e5e7eb;
     }
 
     .message {
@@ -75,7 +267,7 @@
     .message.assistant {
       align-self: flex-start;
       background: #020617;
-      border: 1px solid rgba(148, 163, 184, 0.3);
+      border: 1px solid var(--border-subtle);
       border-bottom-left-radius: 4px;
     }
 
@@ -88,8 +280,8 @@
     .input-container {
       display: flex;
       gap: 8px;
-      padding: 12px 16px;
-      border-top: 1px solid rgba(148, 163, 184, 0.3);
+      padding: 10px 16px;
+      border-top: 1px solid var(--border-subtle);
       background: #020617;
     }
 
@@ -97,7 +289,7 @@
       flex: 1;
       resize: none;
       min-height: 40px;
-      max-height: 100px;
+      max-height: 120px;
       padding: 8px 10px;
       border-radius: 8px;
       border: 1px solid rgba(148, 163, 184, 0.5);
@@ -139,13 +331,12 @@
       transform: translateY(-1px);
     }
 
-    /* Style for the Clear Chat button */
     .clear-btn {
       background: #64748b !important;
       min-width: 90px;
     }
 
-    .clear-btn:hover {
+    .clear-btn:hover:not(:disabled) {
       background: #475569 !important;
       transform: translateY(-1px);
     }
@@ -153,27 +344,71 @@
     .status-bar {
       font-size: 11px;
       padding: 4px 20px 8px;
-      color: #9ca3af;
+      color: var(--text-muted);
+    }
+
+    @media (max-width: 800px) {
+      .app-shell {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        order: 2;
+        max-height: 260px;
+      }
+
+      .app-container {
+        order: 1;
+      }
     }
   </style>
 </head>
 <body>
-  <div class="app-container">
-    <header class="app-header">
-      <h1>Ethan Mollick Assistant</h1>
-      <p>Ask questions grounded in Ethan's LinkedIn posts. Retrieved via Supabase + Gemini.</p>
-    </header>
+  <div class="app-shell">
+    <!-- Sidebar / Threads -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-title">
+          Threads
+          <span class="badge">v1</span>
+        </div>
+        <button id="newThreadBtn">+ New thread</button>
+      </div>
+      <div id="threadList" class="thread-list"></div>
+      <div class="thread-footer">
+        <button id="deleteThreadBtn">Delete current thread</button>
+        <div>
+          Threads are stored locally in this browser only.
+        </div>
+      </div>
+    </aside>
 
-    <div id="chat" class="chat-container"></div>
+    <!-- Main Chat Area -->
+    <div class="app-container">
+      <header class="app-header">
+        <div class="app-header-main">
+          <h1>Ethan Mollick Assistant</h1>
+          <div class="header-actions">
+            <button id="renameThreadBtn">Rename thread</button>
+          </div>
+        </div>
+        <div class="thread-name-display">
+          Current thread: <span id="currentThreadName">—</span>
+        </div>
+        <p>Ask questions grounded in Ethan's LinkedIn posts. Retrieved via Supabase + Gemini.</p>
+      </header>
 
-    <div class="status-bar">
-      <span id="status">Ready.</span>
-    </div>
+      <div id="chat" class="chat-container"></div>
 
-    <div class="input-container">
-      <textarea id="input" placeholder="Ask a question about Ethan's posts..."></textarea>
-      <button id="sendBtn">Send</button>
-      <button id="clearBtn" class="clear-btn">Clear Chat</button>
+      <div class="status-bar">
+        <span id="status">Ready.</span>
+      </div>
+
+      <div class="input-container">
+        <textarea id="input" placeholder="Ask a question about Ethan's posts..."></textarea>
+        <button id="sendBtn">Send</button>
+        <button id="clearBtn" class="clear-btn">Clear thread</button>
+      </div>
     </div>
   </div>
 
@@ -186,58 +421,203 @@
     const clearBtn = document.getElementById("clearBtn");
     const statusEl = document.getElementById("status");
 
-    const STORAGE_KEY = "ethan_assistant_chat_history_v1";
+    const threadListEl = document.getElementById("threadList");
+    const newThreadBtn = document.getElementById("newThreadBtn");
+    const deleteThreadBtn = document.getElementById("deleteThreadBtn");
+    const renameThreadBtn = document.getElementById("renameThreadBtn");
+    const currentThreadNameEl = document.getElementById("currentThreadName");
 
-    let messages = [];
+    const STORAGE_KEY = "ethan_assistant_threads_v1";
 
-    // Load previous session
-    function loadHistory() {
+    let threads = [];
+    let currentThreadId = null;
+
+    // ---- Thread data helpers ---- //
+
+    function generateId() {
+      return (
+        Date.now().toString(36) +
+        "-" +
+        Math.random().toString(36).slice(2, 10)
+      );
+    }
+
+    function loadThreads() {
       try {
         const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) messages = JSON.parse(raw);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          threads = parsed.threads || [];
+          currentThreadId = parsed.currentThreadId || null;
+        }
       } catch (e) {
-        console.warn("Failed to load chat history", e);
+        console.warn("Failed to load threads", e);
+        threads = [];
+        currentThreadId = null;
       }
+
+      // If nothing, create a default thread
+      if (!threads.length) {
+        const defaultThread = {
+          id: generateId(),
+          name: "New thread",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          messages: []
+        };
+        threads.push(defaultThread);
+        currentThreadId = defaultThread.id;
+        saveThreads();
+      } else if (!currentThreadId) {
+        currentThreadId = threads[0].id;
+      }
+
+      renderThreadList();
       renderMessages();
     }
 
-    // Save updated session
-    function saveHistory() {
+    function saveThreads() {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
+        localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({ threads, currentThreadId })
+        );
       } catch (e) {
-        console.warn("Failed to save chat history", e);
+        console.warn("Failed to save threads", e);
       }
     }
 
-    // Reset chat
-    function clearHistory() {
-      messages = [];
-      localStorage.removeItem(STORAGE_KEY);
-      renderMessages();
-      statusEl.textContent = "Chat cleared.";
+    function getCurrentThread() {
+      return threads.find((t) => t.id === currentThreadId) || null;
     }
 
-    function addMessage(role, content) {
-      messages.push({
-        role,
-        content,
-        timestamp: new Date().toISOString(),
-      });
+    function setCurrentThread(id) {
+      currentThreadId = id;
+      saveThreads();
+      renderThreadList();
       renderMessages();
-      saveHistory();
+    }
+
+    function createThread(name = "New thread") {
+      const now = new Date().toISOString();
+      const thread = {
+        id: generateId(),
+        name,
+        createdAt: now,
+        updatedAt: now,
+        messages: []
+      };
+      threads.unshift(thread);
+      currentThreadId = thread.id;
+      saveThreads();
+      renderThreadList();
+      renderMessages();
+    }
+
+    function deleteCurrentThread() {
+      if (!currentThreadId) return;
+      if (threads.length === 1) {
+        // Instead of deleting last thread, just clear it
+        const t = getCurrentThread();
+        if (t) {
+          t.messages = [];
+          t.updatedAt = new Date().toISOString();
+          saveThreads();
+          renderMessages();
+        }
+        return;
+      }
+      threads = threads.filter((t) => t.id !== currentThreadId);
+      currentThreadId = threads[0]?.id || null;
+      saveThreads();
+      renderThreadList();
+      renderMessages();
+    }
+
+    function renameCurrentThread() {
+      const t = getCurrentThread();
+      if (!t) return;
+      const newName = window.prompt("Enter a new name for this thread:", t.name);
+      if (!newName) return;
+      t.name = newName.trim() || t.name;
+      t.updatedAt = new Date().toISOString();
+      saveThreads();
+      renderThreadList();
+      renderMessages();
+    }
+
+    function clearCurrentThreadMessages() {
+      const t = getCurrentThread();
+      if (!t) return;
+      t.messages = [];
+      t.updatedAt = new Date().toISOString();
+      saveThreads();
+      renderMessages();
+      statusEl.textContent = "Thread messages cleared.";
+    }
+
+    // ---- Rendering ---- //
+
+    function renderThreadList() {
+      threadListEl.innerHTML = "";
+      threads.forEach((thread) => {
+        const item = document.createElement("div");
+        item.classList.add("thread-item");
+        if (thread.id === currentThreadId) {
+          item.classList.add("active");
+        }
+
+        const title = document.createElement("div");
+        title.classList.add("thread-item-title");
+        title.textContent = thread.name || "Untitled thread";
+
+        const meta = document.createElement("div");
+        meta.classList.add("thread-item-meta");
+        const created = new Date(thread.createdAt);
+        const updated = new Date(thread.updatedAt);
+        meta.textContent =
+          `Msgs: ${thread.messages.length || 0} · ` +
+          `Updated: ${updated.toLocaleDateString()} ${updated.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}`;
+
+        item.appendChild(title);
+        item.appendChild(meta);
+
+        item.addEventListener("click", () => {
+          setCurrentThread(thread.id);
+        });
+
+        threadListEl.appendChild(item);
+      });
+
+      const current = getCurrentThread();
+      currentThreadNameEl.textContent = current ? (current.name || "Untitled thread") : "—";
     }
 
     function renderMessages() {
       chatEl.innerHTML = "";
-      messages.forEach((msg) => {
+      const thread = getCurrentThread();
+
+      if (!thread || !thread.messages.length) {
+        const empty = document.createElement("div");
+        empty.classList.add("empty-state");
+        empty.innerHTML = `
+          <h2>Start a conversation</h2>
+          <p>Ask about themes in Ethan Mollick's LinkedIn posts — AI, work, management, education, experimentation, and more. Each thread keeps its own Q&amp;A history in this browser.</p>
+        `;
+        chatEl.appendChild(empty);
+        chatEl.scrollTop = 0;
+        currentThreadNameEl.textContent = thread ? (thread.name || "Untitled thread") : "—";
+        return;
+      }
+
+      thread.messages.forEach((msg) => {
         const div = document.createElement("div");
         div.classList.add("message", msg.role);
 
         const meta = document.createElement("div");
         meta.classList.add("meta");
         const who = msg.role === "user" ? "You" : "Assistant";
-        const time = new Date(msg.timestamp).toLocaleTimeString();
+        const time = new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
         meta.textContent = `${who} • ${time}`;
 
         const body = document.createElement("div");
@@ -247,14 +627,31 @@
         div.appendChild(body);
         chatEl.appendChild(div);
       });
+
       chatEl.scrollTop = chatEl.scrollHeight;
+      currentThreadNameEl.textContent = thread ? (thread.name || "Untitled thread") : "—";
     }
+
+    function addMessageToCurrentThread(role, content) {
+      const thread = getCurrentThread();
+      if (!thread) return;
+      thread.messages.push({
+        role,
+        content,
+        timestamp: new Date().toISOString()
+      });
+      thread.updatedAt = new Date().toISOString();
+      saveThreads();
+      renderMessages();
+    }
+
+    // ---- Chat sending ---- //
 
     async function sendMessage() {
       const question = inputEl.value.trim();
       if (!question) return;
 
-      addMessage("user", question);
+      addMessageToCurrentThread("user", question);
       inputEl.value = "";
       inputEl.focus();
       sendBtn.disabled = true;
@@ -268,21 +665,27 @@
         });
 
         if (!resp.ok) {
-          addMessage("assistant", "Sorry, something went wrong with the backend.");
+          addMessageToCurrentThread("assistant", "Sorry, something went wrong with the backend.");
         } else {
           const data = await resp.json();
-          addMessage("assistant", data.answer || "(No answer returned)");
+          addMessageToCurrentThread("assistant", data.answer || "(No answer returned)");
         }
       } catch (err) {
-        addMessage("assistant", "Network error communicating with backend.");
+        console.error(err);
+        addMessageToCurrentThread("assistant", "Network error communicating with backend.");
       } finally {
         sendBtn.disabled = false;
         statusEl.textContent = "Ready.";
       }
     }
 
+    // ---- Event listeners ---- //
+
     sendBtn.addEventListener("click", sendMessage);
-    clearBtn.addEventListener("click", clearHistory);
+    clearBtn.addEventListener("click", clearCurrentThreadMessages);
+    newThreadBtn.addEventListener("click", () => createThread("New thread"));
+    deleteThreadBtn.addEventListener("click", deleteCurrentThread);
+    renameThreadBtn.addEventListener("click", renameCurrentThread);
 
     inputEl.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
@@ -291,7 +694,8 @@
       }
     });
 
-    loadHistory();
+    // Init
+    loadThreads();
   </script>
 </body>
 </html>
