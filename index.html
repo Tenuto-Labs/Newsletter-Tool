@@ -294,6 +294,21 @@
       margin-bottom: 4px;
     }
 
+    /* NEW: image styling inside messages */
+    .message-images {
+      margin-top: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .message-images img {
+      max-width: 100%;
+      border-radius: 8px;
+      border: 1px solid var(--border-subtle);
+      display: block;
+    }
+
     .status-bar {
       font-size: 11px;
       padding: 4px 20px 6px;
@@ -647,6 +662,23 @@
 
         div.appendChild(meta);
         div.appendChild(body);
+
+        // NEW: render images if present on the message
+        if (Array.isArray(msg.images) && msg.images.length > 0) {
+          const imagesContainer = document.createElement("div");
+          imagesContainer.classList.add("message-images");
+
+          msg.images.forEach((img) => {
+            if (!img || !img.url) return;
+            const imgEl = document.createElement("img");
+            imgEl.src = img.url;
+            imgEl.alt = img.alt || "Related image";
+            imagesContainer.appendChild(imgEl);
+          });
+
+          div.appendChild(imagesContainer);
+        }
+
         chatEl.appendChild(div);
       });
 
@@ -654,12 +686,13 @@
       currentThreadNameEl.textContent = thread ? (thread.name || "Untitled thread") : "—";
     }
 
-    function addMessageToCurrentThread(role, content) {
+    function addMessageToCurrentThread(role, content, images = []) {
       const thread = getCurrentThread();
       if (!thread) return;
       thread.messages.push({
         role,
         content,
+        images,
         timestamp: new Date().toISOString()
       });
       thread.updatedAt = new Date().toISOString();
@@ -690,7 +723,12 @@
           addMessageToCurrentThread("assistant", "Sorry, something went wrong with the backend.");
         } else {
           const data = await resp.json();
-          addMessageToCurrentThread("assistant", data.answer || "(No answer returned)");
+          // data.images should be an array from the backend
+          addMessageToCurrentThread(
+            "assistant",
+            data.answer || "(No answer returned)",
+            Array.isArray(data.images) ? data.images : []
+          );
         }
       } catch (err) {
         console.error(err);
