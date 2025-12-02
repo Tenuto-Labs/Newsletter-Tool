@@ -294,7 +294,7 @@
       margin-bottom: 4px;
     }
 
-    /* NEW: image styling inside messages */
+    /* Images inside messages */
     .message-images {
       margin-top: 8px;
       display: flex;
@@ -663,7 +663,7 @@
         div.appendChild(meta);
         div.appendChild(body);
 
-        // NEW: render images if present on the message
+        // Render images if present
         if (Array.isArray(msg.images) && msg.images.length > 0) {
           const imagesContainer = document.createElement("div");
           imagesContainer.classList.add("message-images");
@@ -723,7 +723,6 @@
           addMessageToCurrentThread("assistant", "Sorry, something went wrong with the backend.");
         } else {
           const data = await resp.json();
-          // data.images should be an array from the backend
           addMessageToCurrentThread(
             "assistant",
             data.answer || "(No answer returned)",
