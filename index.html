@@ -433,7 +433,11 @@
         <div class="thread-name-display">
           Current thread: <span id="currentThreadName">—</span>
         </div>
-        <p>Ask questions grounded in Ethan's LinkedIn posts and related writing, retrieved via Supabase + Gemini.</p>
+        <p>
+          Ask questions grounded in the posts and writing of Ethan Mollick and leading AI researchers
+          such as Andrew Ng, Yann LeCun, Mustafa Suleyman, Demis Hassabis, Fei-Fei Li, and Yoshua Bengio.
+          Content is retrieved via Supabase + Gemini.
+        </p>
       </header>
 
       <div id="chat" class="chat-container"></div>
@@ -443,7 +447,7 @@
       </div>
 
       <div class="input-container">
-        <textarea id="input" placeholder="Ask a question about Ethan's posts..."></textarea>
+        <textarea id="input" placeholder="Ask a question about these authors' posts, ideas, or themes..."></textarea>
         <button id="sendBtn">Send</button>
         <button id="clearBtn" class="clear-btn">Clear thread</button>
       </div>
@@ -639,7 +643,12 @@
         empty.classList.add("empty-state");
         empty.innerHTML = `
           <h2>Start a conversation</h2>
-          <p>Ask about themes in Ethan Mollick's writing &amp; posts — AI, work, experimentation, and more. Each thread keeps its own history in this browser.</p>
+          <p>
+            Ask about themes in the writing and posts of Ethan Mollick, Andrew Ng,
+            Yann LeCun, Mustafa Suleyman, Demis Hassabis, Fei-Fei Li, Yoshua Bengio, and more —
+            from AI capabilities to work, experimentation, and education. Each thread keeps its
+            own history in this browser.
+          </p>
         `;
         chatEl.appendChild(empty);
         chatEl.scrollTop = 0;

@@ -1,6 +1,7 @@
 import asyncio
 import os
 import hashlib
+import argparse
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -19,9 +20,45 @@ STATE_PATH = os.environ.get("STATE_PATH", "state.json")
 RAW_HTML_BUCKET = "raw-html"
 IMAGES_BUCKET = "post-images"
 
-# Ethan's profile/posts URLs
-ETHAN_PROFILE_URL = "https://www.linkedin.com/in/emollick/"
-ETHAN_POSTS_URL = "https://www.linkedin.com/in/emollick/recent-activity/all/"
+
+# ---------- Authors to scrape (sequentially) ---------- #
+AUTHORS = [
+    {
+        "display_name": "Ethan Mollick",
+        "profile_url": "https://www.linkedin.com/in/emollick/",
+        "posts_url": "https://www.linkedin.com/in/emollick/recent-activity/all/",
+    },
+    {
+        "display_name": "Andrew Ng",
+        "profile_url": "https://www.linkedin.com/in/andrewyng/",
+        "posts_url": "https://www.linkedin.com/in/andrewyng/recent-activity/all/",
+    },
+    {
+        "display_name": "Yann LeCun",
+        "profile_url": "https://www.linkedin.com/in/yann-lecun/",
+        "posts_url": "https://www.linkedin.com/in/yann-lecun/recent-activity/all/",
+    },
+    {
+        "display_name": "Mustafa Suleyman",
+        "profile_url": "https://www.linkedin.com/in/mustafa-suleyman/",
+        "posts_url": "https://www.linkedin.com/in/mustafa-suleyman/recent-activity/all/",
+    },
+    {
+        "display_name": "Demis Hassabis",
+        "profile_url": "https://www.linkedin.com/in/demishassabis/?originalSubdomain=uk",
+        "posts_url": "https://www.linkedin.com/in/demishassabis/recent-activity/all/",
+    },
+    {
+        "display_name": "Fei-Fei Li",
+        "profile_url": "https://www.linkedin.com/in/fei-fei-li-4541247/",
+        "posts_url": "https://www.linkedin.com/in/fei-fei-li-4541247/recent-activity/all/",
+    },
+    {
+        "display_name": "Yoshua Bengio",
+        "profile_url": "https://www.linkedin.com/in/yoshuabengio/?originalSubdomain=ca",
+        "posts_url": "https://www.linkedin.com/in/yoshuabengio/recent-activity/all/",
+    },
+]
 
 
 @dataclass
@@ -35,6 +72,7 @@ class ScrapedPost:
 
 
 # ---------- Supabase helpers ---------- #
+
 def get_supabase_client() -> Client:
     return create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
@@ -42,6 +80,10 @@ def get_supabase_client() -> Client:
 def upsert_author(supabase: Client, profile_url: str, display_name: str) -> int:
     """
     Upsert an author row and return its id.
+
+    This ensures that:
+    - Each LinkedIn profile URL is stored once in 'authors'
+    - All posts scraped for that profile point to the same author_id
     """
     res = (
         supabase.table("authors")
@@ -54,12 +96,15 @@ def upsert_author(supabase: Client, profile_url: str, display_name: str) -> int:
         )
         .execute()
     )
-    # Supabase returns list of rows
     author_id = res.data[0]["id"]
     return author_id
 
 
 def get_post_by_linkedin_id(supabase: Client, linkedin_post_id: str):
+    """
+    Check if a post with this linkedin_post_id already exists in the 'posts' table.
+    Note: linkedin_post_id here is a synthetic hash id, not the true LinkedIn permalink.
+    """
     res = (
         supabase.table("posts")
         .select("id")
@@ -110,6 +155,9 @@ def insert_post(
     scraped_post: ScrapedPost,
     html_storage_path: str,
 ):
+    """
+    Insert a new post row in 'posts' and return its UUID.
+    """
     res = (
         supabase.table("posts")
         .insert(
@@ -117,7 +165,7 @@ def insert_post(
                 "author_id": author_id,
                 "linkedin_post_id": scraped_post.linkedin_post_id,
                 "linkedin_url": scraped_post.linkedin_url,
-                "posted_at": scraped_post.posted_at,  # raw string; can normalize later
+                "posted_at": scraped_post.posted_at,
                 "full_text": scraped_post.full_text,
                 "raw_html_storage_path": html_storage_path,
             }
@@ -146,10 +194,13 @@ def insert_post_image(
 
 # ---------- Scraper (Playwright) ---------- #
 
-
-async def scrape_ethan_posts(max_scrolls: int = 40) -> List[ScrapedPost]:
+async def scrape_author_posts(posts_url: str, max_scrolls: int = 40) -> List[ScrapedPost]:
     """
-    Scrape Ethan Mollick's posts from his recent activity page.
+    Scrape posts from a LinkedIn author's 'recent activity' page.
+
+    Parameters:
+      posts_url: URL like 'https://www.linkedin.com/in/<slug>/recent-activity/all/'
+      max_scrolls: max scroll iterations to load older posts.
 
     Strategy:
       - Treat each 'feed-shared-update-v2' card as a post container.
@@ -159,6 +210,10 @@ async def scrape_ethan_posts(max_scrolls: int = 40) -> List[ScrapedPost]:
                   else span whose class contains 'update-components-actor__sub-description'
           - Images: img.update-components-image__image,
                     or fallback to img[src*='media.licdn.com']
+
+    Note:
+      - linkedin_post_id is currently a SHA-256 hash of the text content,
+        as a synthetic stable-ish ID per unique text.
     """
     posts: dict[str, ScrapedPost] = {}
     no_new_posts_scrolls = 0  # heuristic to stop when feed stops changing
@@ -169,7 +224,8 @@ async def scrape_ethan_posts(max_scrolls: int = 40) -> List[ScrapedPost]:
         context = await browser.new_context(storage_state=STATE_PATH)
         page = await context.new_page()
 
-        await page.goto(ETHAN_POSTS_URL)
+        print(f"Navigating to posts URL: {posts_url}")
+        await page.goto(posts_url)
         await page.wait_for_timeout(5000)
         print("Current URL:", page.url)
 
@@ -209,7 +265,7 @@ async def scrape_ethan_posts(max_scrolls: int = 40) -> List[ScrapedPost]:
                 linkedin_post_id = hash_id
 
                 if linkedin_post_id in posts:
-                    continue  # already captured this post
+                    continue  # already captured this post in this run
 
                 html = await root.inner_html()
 
@@ -256,8 +312,8 @@ async def scrape_ethan_posts(max_scrolls: int = 40) -> List[ScrapedPost]:
 
                 posts[linkedin_post_id] = ScrapedPost(
                     linkedin_post_id=linkedin_post_id,
-                    linkedin_url="",  # permalink unknown for now
-                    posted_at=posted_at,   # may be None if no suitable element
+                    linkedin_url="",  # permalink still unknown for now
+                    posted_at=posted_at,
                     full_text=text,
                     html=html,
                     image_urls=image_urls,
@@ -287,34 +343,41 @@ async def scrape_ethan_posts(max_scrolls: int = 40) -> List[ScrapedPost]:
     return list(posts.values())
 
 
-# ---------- Orchestration ---------- #
+# ---------- Orchestration per author ---------- #
 
+async def run_for_author(display_name: str, profile_url: str, posts_url: str):
+    print("=" * 80)
+    print(f"Scraping posts from LinkedIn for: {display_name}")
+    print(f"Profile URL: {profile_url}")
+    print(f"Posts URL:   {posts_url}")
+    print("=" * 80)
 
-async def main():
-    print("Scraping Ethan's posts from LinkedIn...")
-    scraped_posts = await scrape_ethan_posts(max_scrolls=40)
-    print(f"Scraped {len(scraped_posts)} posts")
+    scraped_posts = await scrape_author_posts(posts_url=posts_url, max_scrolls=40)
+    print(f"Scraped {len(scraped_posts)} posts for {display_name}")
+
+    if not scraped_posts:
+        print(f"No posts scraped for {display_name} — skipping storage.")
+        return
 
     supabase = get_supabase_client()
 
-    # Upsert Ethan as an author
+    # Upsert this author row
     author_id = upsert_author(
         supabase,
-        profile_url=ETHAN_PROFILE_URL,
-        display_name="Ethan Mollick",
+        profile_url=profile_url,
+        display_name=display_name,
     )
-    print(f"Author id: {author_id}")
+    print(f"Author id for {display_name}: {author_id}")
 
-    # Store each post if not already present
     created_count = 0
 
     for sp in scraped_posts:
         existing = get_post_by_linkedin_id(supabase, sp.linkedin_post_id)
         if existing:
-            print(f"Skipping existing post {sp.linkedin_post_id}")
+            print(f"[{display_name}] Skipping existing post {sp.linkedin_post_id}")
             continue
 
-        print(f"Storing new post {sp.linkedin_post_id}")
+        print(f"[{display_name}] Storing new post {sp.linkedin_post_id}")
 
         # 1) Upload HTML
         html_storage_path = upload_html(
@@ -343,11 +406,47 @@ async def main():
                     position=idx,
                 )
             except Exception as e:
-                print(f"Failed to store image {image_url}: {e}")
+                print(f"[{display_name}] Failed to store image {image_url}: {e}")
 
         created_count += 1
 
-    print(f"Done. Created {created_count} new posts in Supabase.")
+    print(f"Done for {display_name}. Created {created_count} new posts in Supabase.")
+
+
+# ---------- Main: run all authors sequentially ---------- #
+
+async def main():
+    parser = argparse.ArgumentParser(
+        description="Scrape LinkedIn posts for one or more authors and store them in Supabase."
+    )
+    parser.add_argument(
+        "--only",
+        type=str,
+        default=None,
+        help="If provided, only scrape this display name (exact match from AUTHORS list).",
+    )
+
+    args = parser.parse_args()
+
+    # Decide which authors to run
+    if args.only:
+        selected = [a for a in AUTHORS if a["display_name"] == args.only]
+        if not selected:
+            print(f"No author with display name '{args.only}' found in AUTHORS list.")
+            return
+        authors_to_run = selected
+    else:
+        authors_to_run = AUTHORS
+
+    # Run sequentially
+    for author in authors_to_run:
+        await run_for_author(
+            display_name=author["display_name"],
+            profile_url=author["profile_url"],
+            posts_url=author["posts_url"],
+        )
+
+    print("All requested authors processed.")
 
 
 if __name__ == "__main__":
