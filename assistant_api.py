@@ -24,7 +24,7 @@ genai.configure(api_key=GOOGLE_API_KEY)
 EMBEDDING_MODEL = "text-embedding-004"
 
 # Chat model from your list_models() output
-CHAT_MODEL = "models/gemini-3-pro-preview"
+CHAT_MODEL = "models/gemini-2.5-pro"
 
 app = FastAPI(title="AI Luminaries RAG Assistant")
 
