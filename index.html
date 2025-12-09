@@ -667,6 +667,7 @@
         meta.textContent = `${who} • ${time}`;
 
         const body = document.createElement("div");
+        // Both user and assistant shown as plain text (no Markdown rendering)
         body.textContent = msg.content;
 
         div.appendChild(meta);

@@ -21,7 +21,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 # ---- OpenAI models ----
-# Your openai_post_chunks table + embed script use text-embedding-3-small (1536-dim)
+# Match this to your openai_post_chunks embeddings (vector(1536), text-embedding-3-small).
 EMBEDDING_MODEL = "text-embedding-3-small"
 CHAT_MODEL = "gpt-4.1"
 
@@ -88,7 +88,7 @@ def retrieve_chunks(query: str, k: int) -> List[dict]:
     Expected RPC signature:
 
     create or replace function public.match_openai_post_chunks(
-      query_embedding vector,
+      query_embedding vector(1536),
       match_count int
     )
     returns table (
@@ -99,11 +99,11 @@ def retrieve_chunks(query: str, k: int) -> List[dict]:
       similarity double precision,
       posted_at text,
       linkedin_url text
-    )
+    );
     """
     q_emb = embed_query(query)
     rpc_response = supabase.rpc(
-        "match_openai_post_chunks",    # OpenAI-specific RPC
+        "match_openai_post_chunks",
         {
             "query_embedding": q_emb,
             "match_count": k,
@@ -125,6 +125,7 @@ def build_context(chunks: List[dict]) -> str:
         if not text:
             continue
 
+        # Internal structure for the model.
         lines.append(
             f"Excerpt {i+1} (posted_at={posted_at}, url={url}):\n{text}\n"
         )
@@ -139,6 +140,7 @@ def retrieve_image_urls_for_chunks(chunks: List[dict], max_images: int = 6) -> L
     - Uses post_id from chunks.
     - Looks up rows in post_images for those post_ids.
     - Builds public URLs using Supabase Storage's get_public_url.
+    - Filters out *profile photos* based on original_src_url containing 'profile-displayphoto'.
     """
     post_ids = {ch.get("post_id") for ch in chunks if ch.get("post_id") is not None}
     if not post_ids:
@@ -147,7 +149,7 @@ def retrieve_image_urls_for_chunks(chunks: List[dict], max_images: int = 6) -> L
     resp = (
         supabase
         .table("post_images")
-        .select("post_id, storage_path, position")
+        .select("post_id, storage_path, original_src_url, position")
         .in_("post_id", list(post_ids))
         .order("position", desc=False)
         .execute()
@@ -162,6 +164,15 @@ def retrieve_image_urls_for_chunks(chunks: List[dict], max_images: int = 6) -> L
         storage_path = row.get("storage_path")
         if not storage_path:
             continue
+
+        original_src_url = (row.get("original_src_url") or "").lower()
+
+        # --- Skip LinkedIn profile photos ---
+        # Example:
+        # https://media.licdn.com/.../profile-displayphoto-shrink_100_100/...
+        if "profile-displayphoto" in original_src_url:
+            continue
+        # ------------------------------------
 
         res = storage.get_public_url(storage_path)
         if isinstance(res, dict):
@@ -205,6 +216,7 @@ def ask(req: AskRequest):
     context = build_context(chunks)
 
     # 2) System-style instructions (multi-author Ethan-centered prompt)
+    #    Updated to avoid Markdown in the output.
     system_prompt = """
 SYSTEM ROLE & PERSONA
 You are an expert AI synthesist dedicated to the work of Ethan Mollick (Professor at Wharton, author of "Co-Intelligence" and "One Useful Thing") and a curated set of AI luminaries, including Andrew Ng, Yann LeCun, Mustafa Suleyman, Demis Hassabis, Fei-Fei Li, and Yoshua Bengio.
@@ -213,7 +225,7 @@ Your goal is to answer user questions by drawing on this shared body of posts an
 
 Your Persona:
 - Tone: Pragmatic, experimentally driven, academic yet highly accessible, and cautiously optimistic.
-- Style: You value "learning by doing." You often use analogies (e.g., "the jagged frontier," "secret cyborgs," "centaurs").
+- Style: You value "learning by doing." You often use analogies (for example, "the jagged frontier," "secret cyborgs," "centaurs").
 - Approach: You do not just summarize; you synthesize. You look for the "so what?"—the practical implication for work, education, or leadership.
 
 CORE INSTRUCTIONS
@@ -227,22 +239,26 @@ CORE INSTRUCTIONS
 
 2. Synthesis Strategy
 Do not treat the excerpts as a list of independent facts. Instead:
-- Connect the Dots: Combine ideas across authors. For example, if one passage discusses education and another discusses LLM hallucination or model capabilities, use them together to explain how these thinkers view AI risks and opportunities.
-- Compare and Contrast: When the excerpts suggest differences in emphasis or perspective between authors (e.g., more cautious vs. more optimistic), briefly surface those tensions.
+- Connect the Dots: Combine ideas across authors. For example, if one passage discusses education and another discusses model capabilities, use them together to explain how these thinkers view AI risks and opportunities.
+- Compare and Contrast: When the excerpts suggest differences in emphasis or perspective between authors (for example, more cautious versus more optimistic), briefly surface those tensions.
 - Temporal Nuance: If advice or views have evolved over time, highlight that evolution.
-- Integrate Visuals via Text: If the context text describes charts, screenshots, or images, you may treat those descriptions as evidence (e.g., “In one post, a chart shows GPT-4’s performance on standardized tests…”). Do not claim to see images directly; rely only on their textual descriptions.
+- Integrate Visuals via Text: If the context text describes charts, screenshots, or images, you may treat those descriptions as evidence. Do not claim to see images directly; rely only on their textual descriptions.
 - Focus on the “So What”: Emphasize implications for practice—how someone might act differently at work, in education, or in leadership based on these ideas.
 
 3. Response Formatting
-- Structure: Use clear Markdown headers, bullet points for lists, and bold text for emphasis.
-- Length: Aim for rich, multi-paragraph answers (approximately 200–400 words) unless the user explicitly asks for brevity.
-- Voice: Write in the first-person plural (“We are seeing…”, “Our research suggests…”) or third-person objective (“Mollick argues…”, “Ng emphasizes…”) depending on the user’s framing, while keeping a professional yet conversational cadence.
+- Write in normal prose, as if you are drafting a thoughtful email or memo.
+- Use short paragraphs and clear topic sentences so the structure is obvious.
+- You may say things like "First,", "Second,", or "In practice," to signal structure.
+- DO NOT use any Markdown syntax. Avoid characters such as hash signs (#), asterisks (*), hyphen bullets (-), or double asterisks for bold (**). Just write plain text.
+
+4. Voice
+- Write in the first-person plural (“We are seeing…”, “Our research suggests…”) or third-person objective (“Mollick argues…”, “Ng emphasizes…”) depending on the user’s framing, while keeping a professional yet conversational cadence.
 
 NEGATIVE CONSTRAINTS (Never do this)
 - Never say “In the first excerpt…” or “Document 3 says…”.
 - Never use generic AI advice. Only give advice that these authors have explicitly shared or that clearly follows from the provided context.
 - Never be sycophantic. Be objective and analytical about the content.
-- Never apologize for not knowing something. Simply state that the current body of work doesn’t address that specific angle.
+- Never apologize for not knowing something. Simply state that the current body of work does not address that specific angle.
 - Never comment on whether images are shown or not in the interface. Do not say that visuals are missing, unavailable, or “not included here.”
 """
 
@@ -257,7 +273,7 @@ NEGATIVE CONSTRAINTS (Never do this)
                 f"{context}\n\n"
                 "Using ONLY the above material as factual grounding, write a detailed, thoughtful answer. "
                 "Synthesize across ideas and authors, highlight tensions or evolution where appropriate, and make the "
-                "practical implications clear. Use Markdown headings and bullet points where helpful."
+                "practical implications clear. Remember: write in plain text, no Markdown formatting."
             ),
         },
     ]
@@ -270,7 +286,7 @@ NEGATIVE CONSTRAINTS (Never do this)
     )
     answer_text = resp.choices[0].message.content
 
-    # 5) Retrieve associated images for these chunks
+    # 5) Retrieve associated images for these chunks (filtered to avoid profile pics)
     images = retrieve_image_urls_for_chunks(chunks)
 
     return AskResponse(
