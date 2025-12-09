@@ -1,30 +1,29 @@
 import os
 from typing import List, Optional
 
-import google.generativeai as genai
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from supabase import create_client
 from dotenv import load_dotenv
+from openai import OpenAI
 
 load_dotenv()
 
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
-GOOGLE_API_KEY = os.environ["GOOGLE_API_KEY"]
+OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 
 # Supabase storage bucket name for images (public)
 SUPABASE_STORAGE_BUCKET_NAME = "post-images"
 
 supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-genai.configure(api_key=GOOGLE_API_KEY)
+client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Embedding model (already used in your pipeline)
-EMBEDDING_MODEL = "text-embedding-004"
-
-# Chat model from your list_models() output
-CHAT_MODEL = "models/gemini-2.5-pro"
+# ---- OpenAI models ----
+# Your openai_post_chunks table + embed script use text-embedding-3-small (1536-dim)
+EMBEDDING_MODEL = "text-embedding-3-small"
+CHAT_MODEL = "gpt-4.1"
 
 app = FastAPI(title="AI Luminaries RAG Assistant")
 
@@ -70,25 +69,25 @@ class AskResponse(BaseModel):
 
 def embed_query(query: str) -> List[float]:
     """
-    Embed the user's question using the embedding model.
+    Embed the user's question using the OpenAI embedding model.
+
+    NOTE: Your openai_post_chunks table should also use this same model
+    (text-embedding-3-small) for good similarity behavior.
     """
-    result = genai.embed_content(
+    resp = client.embeddings.create(
         model=EMBEDDING_MODEL,
-        content=query,
-        task_type="retrieval_query",
+        input=query,
     )
-    # handle both dict-style and object-style responses
-    emb = result["embedding"] if isinstance(result, dict) else result.embeddings[0].values
-    return emb
+    return resp.data[0].embedding
 
 
 def retrieve_chunks(query: str, k: int) -> List[dict]:
     """
-    Call match_post_chunks via Supabase RPC to get relevant chunks.
+    Call match_openai_post_chunks via Supabase RPC to get relevant chunks.
 
     Expected RPC signature:
 
-    create or replace function public.match_post_chunks(
+    create or replace function public.match_openai_post_chunks(
       query_embedding vector,
       match_count int
     )
@@ -104,7 +103,7 @@ def retrieve_chunks(query: str, k: int) -> List[dict]:
     """
     q_emb = embed_query(query)
     rpc_response = supabase.rpc(
-        "match_post_chunks",
+        "match_openai_post_chunks",    # OpenAI-specific RPC
         {
             "query_embedding": q_emb,
             "match_count": k,
@@ -115,7 +114,7 @@ def retrieve_chunks(query: str, k: int) -> List[dict]:
 
 def build_context(chunks: List[dict]) -> str:
     """
-    Turn retrieved chunks into a context block for Gemini.
+    Turn retrieved chunks into a context block for the LLM.
     We keep light metadata (like posted_at) purely for the model's reasoning.
     """
     lines = []
@@ -126,7 +125,6 @@ def build_context(chunks: List[dict]) -> str:
         if not text:
             continue
 
-        # This is internal structure for the model, not something we tell it to repeat verbatim.
         lines.append(
             f"Excerpt {i+1} (posted_at={posted_at}, url={url}):\n{text}\n"
         )
@@ -135,7 +133,7 @@ def build_context(chunks: List[dict]) -> str:
 
 def retrieve_image_urls_for_chunks(chunks: List[dict], max_images: int = 6) -> List[ImageRef]:
     """
-    Given the chunks returned from match_post_chunks, fetch associated image URLs
+    Given the chunks returned from match_openai_post_chunks, fetch associated image URLs
     from the 'post-images' Supabase Storage bucket.
 
     - Uses post_id from chunks.
@@ -248,24 +246,29 @@ NEGATIVE CONSTRAINTS (Never do this)
 - Never comment on whether images are shown or not in the interface. Do not say that visuals are missing, unavailable, or “not included here.”
 """
 
-    # 3) Single user prompt string
-    user_prompt = (
-        f"{system_prompt}\n\n"
-        f"User question:\n{req.question}\n\n"
-        f"Here is your knowledge base for this question (drawn from posts and related content):\n\n"
-        f"{context}\n\n"
-        "Using ONLY the above material as factual grounding, write a detailed, thoughtful answer. "
-        "Synthesize across ideas and authors, highlight tensions or evolution where appropriate, and make the "
-        "practical implications clear. Use Markdown headings and bullet points where helpful."
-    )
+    # 3) Messages for OpenAI chat API
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {
+            "role": "user",
+            "content": (
+                f"User question:\n{req.question}\n\n"
+                f"Here is your knowledge base for this question (drawn from posts and related content):\n\n"
+                f"{context}\n\n"
+                "Using ONLY the above material as factual grounding, write a detailed, thoughtful answer. "
+                "Synthesize across ideas and authors, highlight tensions or evolution where appropriate, and make the "
+                "practical implications clear. Use Markdown headings and bullet points where helpful."
+            ),
+        },
+    ]
 
-    # 4) Call Gemini
-    model = genai.GenerativeModel(
-        model_name=CHAT_MODEL,
+    # 4) Call OpenAI Chat Completions
+    resp = client.chat.completions.create(
+        model=CHAT_MODEL,
+        messages=messages,
+        temperature=0.7,
     )
-
-    response = model.generate_content(user_prompt)
-    answer_text = response.text
+    answer_text = resp.choices[0].message.content
 
     # 5) Retrieve associated images for these chunks
     images = retrieve_image_urls_for_chunks(chunks)

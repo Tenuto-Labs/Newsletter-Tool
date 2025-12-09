@@ -436,7 +436,7 @@
         <p>
           Ask questions grounded in the posts and writing of Ethan Mollick and leading AI researchers
           such as Andrew Ng, Yann LeCun, Mustafa Suleyman, Demis Hassabis, Fei-Fei Li, and Yoshua Bengio.
-          Content is retrieved via Supabase + Gemini.
+          Content is retrieved via Supabase + OpenAI.
         </p>
       </header>
 
@@ -725,7 +725,7 @@
         const resp = await fetch(API_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ question, k: 8 }),
+          body: JSON.stringify({ question, k: 10 }),
         });
 
         if (!resp.ok) {
