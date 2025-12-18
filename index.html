@@ -4,28 +4,26 @@
   <meta charset="UTF-8" />
   <title>Tenuto Newsletter Development Tool</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Supabase JS (UMD) -->
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+
   <style>
     :root {
-      --bg-page: #f4f2ec;        /* off-white, magazine-like */
+      --bg-page: #f4f2ec;
       --bg-shell: #f8f7f2;
       --bg-panel: #ffffff;
       --bg-panel-soft: #f2efe7;
       --border-subtle: #d2c9b8;
-      --accent: #b12b2b;         /* deep red accent */
+      --accent: #b12b2b;
       --accent-soft: #e0b3b3;
       --text-main: #111111;
       --text-muted: #666666;
+      --danger: #b91c1c;
     }
 
-    * {
-      box-sizing: border-box;
-    }
-
-    html, body {
-      margin: 0;
-      padding: 0;
-      height: 100%;
-    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; height: 100%; }
 
     body {
       font-family: "Georgia", "Times New Roman", serif;
@@ -34,7 +32,7 @@
       display: flex;
       justify-content: center;
       align-items: stretch;
-      overflow: hidden; /* prevent page scrolling; inner areas scroll instead */
+      overflow: hidden;
     }
 
     .app-shell {
@@ -45,13 +43,10 @@
       border-radius: 18px;
       border: 1px solid var(--border-subtle);
       display: grid;
-      grid-template-columns: 260px minmax(0, 1fr);
-      gap: 0;
+      grid-template-columns: 300px minmax(0, 1fr);
       overflow: hidden;
-      height: calc(100vh - 32px); /* fill viewport minus margins */
+      height: calc(100vh - 32px);
     }
-
-    /* Sidebar (threads) */
 
     .sidebar {
       background: var(--bg-panel-soft);
@@ -60,36 +55,32 @@
       display: flex;
       flex-direction: column;
       height: 100%;
+      gap: 10px;
+    }
+
+    .sidebar-block {
+      background: #fffdf7;
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      padding: 10px;
     }
 
     .sidebar-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 10px;
       gap: 8px;
+      margin-bottom: 8px;
     }
 
     .sidebar-title {
-      font-size: 14px;
-      font-weight: 600;
+      font-size: 13px;
+      font-weight: 700;
       letter-spacing: 0.06em;
       text-transform: uppercase;
-      color: #222222;
-      display: flex;
-      align-items: center;
-      gap: 6px;
     }
 
-    .sidebar-title span.badge {
-      font-size: 10px;
-      padding: 2px 6px;
-      border-radius: 999px;
-      background: var(--accent);
-      color: white;
-    }
-
-    .sidebar button {
+    button {
       border-radius: 999px;
       border: 1px solid var(--border-subtle);
       background: #ffffff;
@@ -99,69 +90,101 @@
       cursor: pointer;
       display: inline-flex;
       align-items: center;
-      gap: 4px;
+      gap: 6px;
       white-space: nowrap;
       font-family: inherit;
     }
 
-    .sidebar button:hover {
-      background: #f0ece3;
+    button:hover { background: #f0ece3; }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+      border-color: var(--accent);
     }
+    .btn-primary:hover { background: #8f2222; }
+
+    .btn-danger {
+      background: white;
+      color: var(--danger);
+      border-color: var(--danger);
+    }
+    .btn-danger:hover { background: #fff1f1; }
 
     .thread-list {
-      flex: 1;
+      max-height: 320px;
       overflow-y: auto;
-      margin-top: 6px;
       padding-right: 4px;
     }
 
     .thread-item {
       padding: 8px 10px;
       border-radius: 10px;
-      margin-bottom: 4px;
+      margin-bottom: 6px;
       cursor: pointer;
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
       border: 1px solid transparent;
-      font-size: 13px;
       background: transparent;
     }
-
     .thread-item.active {
       background: #fffdf7;
       border-color: var(--accent);
     }
-
     .thread-item-title {
-      white-space: nowrap;
+      font-size: 13px;
+      font-weight: 600;
       overflow: hidden;
+      white-space: nowrap;
       text-overflow: ellipsis;
     }
-
     .thread-item-meta {
       font-size: 11px;
       color: var(--text-muted);
-      display: flex;
-      justify-content: space-between;
-      gap: 8px;
+      margin-top: 2px;
     }
 
-    .thread-footer {
-      margin-top: 8px;
+    .sources-list {
+      max-height: 240px;
+      overflow-y: auto;
+      padding-right: 4px;
       display: flex;
       flex-direction: column;
       gap: 6px;
+    }
+
+    .source-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 6px 8px;
+      border-radius: 10px;
+      border: 1px solid var(--border-subtle);
+      background: #ffffff;
+      font-size: 12px;
+    }
+    .source-left {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+    .source-name {
+      font-weight: 600;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    .source-meta {
       font-size: 11px;
       color: var(--text-muted);
     }
 
-    .thread-footer button {
-      width: 100%;
-      justify-content: center;
+    .toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
     }
-
-    /* Main chat panel */
 
     .app-container {
       background: var(--bg-panel);
@@ -174,7 +197,7 @@
     .app-header {
       padding: 12px 16px 10px;
       border-bottom: 1px solid var(--border-subtle);
-      position: sticky;     /* stays visible when chat scrolls */
+      position: sticky;
       top: 0;
       z-index: 10;
       background: var(--bg-panel);
@@ -190,57 +213,28 @@
 
     .app-header h1 {
       margin: 0;
-      font-size: 20px;
-      font-weight: 700;
+      font-size: 18px;
+      font-weight: 800;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-    }
-
-    .thread-name-display {
-      font-size: 13px;
-      color: var(--text-muted);
-      margin-top: 2px;
-    }
-
-    .thread-name-display span {
-      font-weight: 600;
-      color: var(--accent);
     }
 
     .header-actions {
       display: flex;
       gap: 8px;
       flex-wrap: wrap;
-    }
-
-    .header-actions button {
-      border: 1px solid var(--border-subtle);
-      border-radius: 999px;
-      background: #ffffff;
-      color: var(--text-main);
-      font-size: 11px;
-      padding: 4px 10px;
-      cursor: pointer;
-      display: inline-flex;
       align-items: center;
-      gap: 4px;
-      font-family: inherit;
     }
 
-    .header-actions button:hover {
-      background: #f0ece3;
-    }
-
-    .app-header p {
-      margin: 4px 0 0;
-      font-size: 11px;
+    .muted {
       color: var(--text-muted);
+      font-size: 12px;
     }
 
     .chat-container {
       flex: 1;
       padding: 16px 20px;
-      overflow-y: auto;   /* this is where scrolling happens */
+      overflow-y: auto;
       display: flex;
       flex-direction: column;
       gap: 12px;
@@ -250,7 +244,7 @@
     .empty-state {
       margin: auto;
       text-align: center;
-      max-width: 420px;
+      max-width: 460px;
       color: var(--text-muted);
       font-size: 13px;
       padding: 20px;
@@ -259,19 +253,12 @@
       background: #fdfaf3;
     }
 
-    .empty-state h2 {
-      margin: 0 0 6px;
-      font-size: 16px;
-      color: #222222;
-      font-weight: 600;
-    }
-
     .message {
-      max-width: 75%;
+      max-width: 78%;
       padding: 10px 14px;
       border-radius: 12px;
       font-size: 14px;
-      line-height: 1.5;
+      line-height: 1.55;
       white-space: pre-wrap;
       background: #f7f3ea;
       border: 1px solid var(--border-subtle);
@@ -294,24 +281,9 @@
       margin-bottom: 4px;
     }
 
-    /* Images inside messages */
-    .message-images {
-      margin-top: 8px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    .message-images img {
-      max-width: 100%;
-      border-radius: 8px;
-      border: 1px solid var(--border-subtle);
-      display: block;
-    }
-
     .status-bar {
       font-size: 11px;
-      padding: 4px 20px 6px;
+      padding: 6px 20px;
       color: var(--text-muted);
       border-top: 1px solid var(--border-subtle);
     }
@@ -328,7 +300,7 @@
       flex: 1;
       resize: none;
       min-height: 40px;
-      max-height: 120px;
+      max-height: 140px;
       padding: 8px 10px;
       border-radius: 6px;
       border: 1px solid var(--border-subtle);
@@ -344,99 +316,121 @@
       box-shadow: 0 0 0 1px rgba(177, 43, 43, 0.2);
     }
 
-    .input-container button {
-      border: none;
-      border-radius: 999px;
-      padding: 0 16px;
-      font-size: 14px;
-      font-weight: 500;
-      cursor: pointer;
-      background: var(--accent);
-      color: white;
+    .login-shell {
+      width: 100%;
+      max-width: 720px;
+      margin: 16px;
+      background: #fffdf7;
+      border: 1px solid var(--border-subtle);
+      border-radius: 18px;
+      padding: 16px;
+      height: calc(100vh - 32px);
       display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .login-shell h2 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .login-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
       align-items: center;
-      justify-content: center;
-      min-width: 80px;
-      transition: background 0.15s ease, transform 0.05s ease;
+    }
+
+    .login-row input {
+      flex: 1;
+      min-width: 240px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border-subtle);
       font-family: inherit;
+      font-size: 14px;
     }
 
-    .input-container button:disabled {
-      opacity: 0.6;
-      cursor: default;
-    }
+    .hide { display: none !important; }
 
-    .input-container button:not(:disabled):hover {
-      background: #8f2222;
-      transform: translateY(-1px);
-    }
-
-    .clear-btn {
-      background: #d0c6b7 !important;
-      color: #2b2620;
-      min-width: 90px;
-    }
-
-    .clear-btn:hover:not(:disabled) {
-      background: #b9ae9c !important;
-      transform: translateY(-1px);
-    }
-
-    @media (max-width: 900px) {
+    @media (max-width: 980px) {
       .app-shell {
         grid-template-columns: 1fr;
         height: 100vh;
         margin: 0;
         border-radius: 0;
       }
-
-      .sidebar {
-        order: 2;
-        max-height: 260px;
-      }
-
-      .app-container {
-        order: 1;
-      }
     }
   </style>
 </head>
 <body>
-  <div class="app-shell">
-    <!-- Sidebar / Threads -->
+
+  <!-- LOGIN VIEW -->
+  <div id="loginView" class="login-shell hide">
+    <h2>Sign in</h2>
+    <div class="muted">
+      This tool uses Supabase Auth. Enter your email to receive a magic link.
+    </div>
+    <div class="login-row">
+      <input id="emailInput" type="email" placeholder="you@tenutolabs.com" />
+      <button id="magicLinkBtn" class="btn-primary">Send magic link</button>
+    </div>
+    <div class="muted">
+      After you click the magic link, you’ll be signed in automatically here.
+    </div>
+    <div class="status-bar">
+      <span id="loginStatus">Ready.</span>
+    </div>
+  </div>
+
+  <!-- APP VIEW -->
+  <div id="appView" class="app-shell hide">
     <aside class="sidebar">
-      <div class="sidebar-header">
-        <div class="sidebar-title">
-          Threads
-          <span class="badge">v1</span>
+      <div class="sidebar-block">
+        <div class="sidebar-header">
+          <div class="sidebar-title">Account</div>
+          <button id="logoutBtn" class="btn-danger">Log out</button>
         </div>
-        <button id="newThreadBtn">+ New thread</button>
+        <div class="muted" id="userEmail">—</div>
       </div>
-      <div id="threadList" class="thread-list"></div>
-      <div class="thread-footer">
-        <button id="deleteThreadBtn">Delete current thread</button>
-        <div>
-          Threads are stored locally in this browser.
+
+      <div class="sidebar-block">
+        <div class="sidebar-header">
+          <div class="sidebar-title">Threads</div>
+          <button id="newThreadBtn" class="btn-primary">+ New</button>
         </div>
+        <div id="threadList" class="thread-list"></div>
+        <div class="login-row" style="margin-top:8px;">
+          <button id="renameThreadBtn">Rename</button>
+          <button id="deleteThreadBtn" class="btn-danger">Delete</button>
+        </div>
+      </div>
+
+      <div class="sidebar-block">
+        <div class="sidebar-header">
+          <div class="sidebar-title">Sources</div>
+          <button id="refreshSourcesBtn">Refresh</button>
+        </div>
+        <div class="muted" style="margin-bottom:8px;">
+          Admins can toggle which authors are searched.
+        </div>
+        <div id="sourcesList" class="sources-list"></div>
       </div>
     </aside>
 
-    <!-- Main Chat Area -->
     <div class="app-container">
       <header class="app-header">
         <div class="app-header-main">
           <h1>Tenuto Newsletter Development Tool</h1>
           <div class="header-actions">
-            <button id="renameThreadBtn">Rename thread</button>
+            <span class="muted">Current thread: <b id="currentThreadName">—</b></span>
           </div>
         </div>
-        <div class="thread-name-display">
-          Current thread: <span id="currentThreadName">—</span>
-        </div>
-        <p>
-          Ask questions grounded in the posts and writing of Ethan Mollick and leading AI researchers
-          such as Andrew Ng, Yann LeCun, Mustafa Suleyman, Demis Hassabis, Fei-Fei Li, and Yoshua Bengio.
-          Content is retrieved via Supabase + OpenAI.
+        <p class="muted" style="margin:6px 0 0;">
+          Persistent memory is stored per user in Supabase. Replies are plain text (no Markdown).
         </p>
       </header>
 
@@ -447,315 +441,471 @@
       </div>
 
       <div class="input-container">
-        <textarea id="input" placeholder="Ask a question about these authors' posts, ideas, or themes..."></textarea>
-        <button id="sendBtn">Send</button>
-        <button id="clearBtn" class="clear-btn">Clear thread</button>
+        <textarea id="input" placeholder="Ask a question..."></textarea>
+        <button id="sendBtn" class="btn-primary">Send</button>
       </div>
     </div>
   </div>
 
   <script>
-    const API_URL = "https://newsletter-tool-mfsi.onrender.com/ask";
+    // ==========================
+    // CONFIG
+    // ==========================
+    const SUPABASE_URL = "https://qzznxnidyhqadgsutvkb.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF6em54bmlkeWhxYWRnc3V0dmtiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMxMzk0NTQsImV4cCI6MjA3ODcxNTQ1NH0.pRK0EnPp6jiXq10ySx7WKiHXHI7S9KwzOBSnXxqsBiQ";
+    const API_BASE_URL = "https://newsletter-tool-mfsi.onrender.com"; // your Render backend base URL
+
+    // Allowlist gate (UI-level)
+    const ALLOWED_EMAILS = new Set([
+      "hans@tenutolabs.com",
+      "sanjay@tenutolabs.com",
+      "joseph@tenutolabs.com",
+    ]);
+
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // ==========================
+    // DOM
+    // ==========================
+    const loginView = document.getElementById("loginView");
+    const appView = document.getElementById("appView");
+
+    const emailInput = document.getElementById("emailInput");
+    const magicLinkBtn = document.getElementById("magicLinkBtn");
+    const loginStatus = document.getElementById("loginStatus");
+
+    const logoutBtn = document.getElementById("logoutBtn");
+    const userEmailEl = document.getElementById("userEmail");
+
+    const threadListEl = document.getElementById("threadList");
+    const newThreadBtn = document.getElementById("newThreadBtn");
+    const renameThreadBtn = document.getElementById("renameThreadBtn");
+    const deleteThreadBtn = document.getElementById("deleteThreadBtn");
+    const currentThreadNameEl = document.getElementById("currentThreadName");
+
+    const sourcesListEl = document.getElementById("sourcesList");
+    const refreshSourcesBtn = document.getElementById("refreshSourcesBtn");
 
     const chatEl = document.getElementById("chat");
     const inputEl = document.getElementById("input");
     const sendBtn = document.getElementById("sendBtn");
-    const clearBtn = document.getElementById("clearBtn");
     const statusEl = document.getElementById("status");
 
-    const threadListEl = document.getElementById("threadList");
-    const newThreadBtn = document.getElementById("newThreadBtn");
-    const deleteThreadBtn = document.getElementById("deleteThreadBtn");
-    const renameThreadBtn = document.getElementById("renameThreadBtn");
-    const currentThreadNameEl = document.getElementById("currentThreadName");
-
-    const STORAGE_KEY = "ethan_assistant_threads_v1";
-
-    let threads = [];
+    // ==========================
+    // STATE
+    // ==========================
+    let accessToken = null;
     let currentThreadId = null;
+    let threads = [];
+    let messages = [];
+    let sources = [];
 
-    // ---- Thread data helpers ---- //
-
-    function generateId() {
-      return (
-        Date.now().toString(36) +
-        "-" +
-        Math.random().toString(36).slice(2, 10)
-      );
+    // ==========================
+    // Helpers
+    // ==========================
+    function showLogin() {
+      loginView.classList.remove("hide");
+      appView.classList.add("hide");
     }
 
-    function loadThreads() {
-      try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          threads = parsed.threads || [];
-          currentThreadId = parsed.currentThreadId || null;
-        }
-      } catch (e) {
-        console.warn("Failed to load threads", e);
-        threads = [];
-        currentThreadId = null;
+    function showApp() {
+      loginView.classList.add("hide");
+      appView.classList.remove("hide");
+    }
+
+    function setStatus(text) {
+      statusEl.textContent = text;
+    }
+
+    async function apiFetch(path, options = {}) {
+      if (!accessToken) throw new Error("Missing access token");
+      const resp = await fetch(`${API_BASE_URL}${path}`, {
+        ...options,
+        headers: {
+          ...(options.headers || {}),
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${accessToken}`,
+        },
+      });
+      return resp;
+    }
+
+    // ==========================
+    // Auth
+    // ==========================
+    async function loadSession() {
+      const { data } = await supabaseClient.auth.getSession();
+      const session = data?.session || null;
+      if (!session) return null;
+      return session;
+    }
+
+    async function handleSignedIn(session) {
+      accessToken = session.access_token;
+      userEmailEl.textContent = session.user?.email || "Signed in";
+      showApp();
+      await refreshThreads();
+      await refreshSources();
+    }
+
+    async function handleSignedOut() {
+      accessToken = null;
+      currentThreadId = null;
+      threads = [];
+      messages = [];
+      sources = [];
+      chatEl.innerHTML = "";
+      threadListEl.innerHTML = "";
+      sourcesListEl.innerHTML = "";
+      currentThreadNameEl.textContent = "—";
+      showLogin();
+    }
+
+    // Keep email lowercase in UI
+    emailInput.addEventListener("input", () => {
+      emailInput.value = (emailInput.value || "").toLowerCase();
+    });
+
+    magicLinkBtn.addEventListener("click", async () => {
+      const email = ((emailInput.value || "").trim()).toLowerCase();
+      if (!email) return;
+
+      // Allowlist gate
+      if (!ALLOWED_EMAILS.has(email)) {
+        loginStatus.textContent = "This email is not authorized for this tool.";
+        return;
       }
 
-      // If nothing, create a default thread
+      loginStatus.textContent = "Sending magic link...";
+      const { error } = await supabaseClient.auth.signInWithOtp({
+        email,
+        options: {
+          emailRedirectTo: window.location.href, // keep it simple
+        }
+      });
+
+      if (error) {
+        console.error(error);
+        loginStatus.textContent = "Error sending link.";
+      } else {
+        loginStatus.textContent = "Magic link sent. Check your email.";
+      }
+    });
+
+    logoutBtn.addEventListener("click", async () => {
+      await supabaseClient.auth.signOut();
+    });
+
+    supabaseClient.auth.onAuthStateChange(async (event, session) => {
+      if (event === "SIGNED_IN" && session) {
+        await handleSignedIn(session);
+      } else if (event === "SIGNED_OUT") {
+        await handleSignedOut();
+      }
+    });
+
+    // ==========================
+    // Threads
+    // ==========================
+    async function refreshThreads() {
+      const resp = await apiFetch("/threads", { method: "GET" });
+      if (!resp.ok) {
+        console.error(await resp.text());
+        setStatus("Failed to load threads.");
+        return;
+      }
+      threads = await resp.json();
+
+      // Auto-select first thread or create one
       if (!threads.length) {
-        const defaultThread = {
-          id: generateId(),
-          name: "New thread",
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          messages: []
-        };
-        threads.push(defaultThread);
-        currentThreadId = defaultThread.id;
-        saveThreads();
-      } else if (!currentThreadId) {
+        await createThread("New thread");
+        return;
+      }
+
+      if (!currentThreadId || !threads.find(t => t.id === currentThreadId)) {
         currentThreadId = threads[0].id;
       }
 
       renderThreadList();
-      renderMessages();
+      await loadMessages(currentThreadId);
     }
 
-    function saveThreads() {
-      try {
-        localStorage.setItem(
-          STORAGE_KEY,
-          JSON.stringify({ threads, currentThreadId })
-        );
-      } catch (e) {
-        console.warn("Failed to save threads", e);
-      }
-    }
-
-    function getCurrentThread() {
-      return threads.find((t) => t.id === currentThreadId) || null;
-    }
-
-    function setCurrentThread(id) {
-      currentThreadId = id;
-      saveThreads();
-      renderThreadList();
-      renderMessages();
-    }
-
-    function createThread(name = "New thread") {
-      const now = new Date().toISOString();
-      const thread = {
-        id: generateId(),
-        name,
-        createdAt: now,
-        updatedAt: now,
-        messages: []
-      };
-      threads.unshift(thread);
-      currentThreadId = thread.id;
-      saveThreads();
-      renderThreadList();
-      renderMessages();
-    }
-
-    function deleteCurrentThread() {
-      if (!currentThreadId) return;
-      if (threads.length === 1) {
-        // Instead of deleting last thread, just clear it
-        const t = getCurrentThread();
-        if (t) {
-          t.messages = [];
-          t.updatedAt = new Date().toISOString();
-          saveThreads();
-          renderMessages();
-        }
+    async function createThread(name) {
+      const resp = await apiFetch("/threads", {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      });
+      if (!resp.ok) {
+        console.error(await resp.text());
+        setStatus("Failed to create thread.");
         return;
       }
-      threads = threads.filter((t) => t.id !== currentThreadId);
-      currentThreadId = threads[0]?.id || null;
-      saveThreads();
-      renderThreadList();
-      renderMessages();
+      const t = await resp.json();
+      currentThreadId = t.id;
+      await refreshThreads();
     }
 
-    function renameCurrentThread() {
-      const t = getCurrentThread();
-      if (!t) return;
-      const newName = window.prompt("Enter a new name for this thread:", t.name);
+    async function renameCurrentThread() {
+      if (!currentThreadId) return;
+      const current = threads.find(t => t.id === currentThreadId);
+      const newName = window.prompt("New thread name:", current?.name || "New thread");
       if (!newName) return;
-      t.name = newName.trim() || t.name;
-      t.updatedAt = new Date().toISOString();
-      saveThreads();
-      renderThreadList();
-      renderMessages();
+
+      const resp = await apiFetch(`/threads/${currentThreadId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: newName }),
+      });
+      if (!resp.ok) {
+        console.error(await resp.text());
+        setStatus("Failed to rename thread.");
+        return;
+      }
+      await refreshThreads();
     }
 
-    function clearCurrentThreadMessages() {
-      const t = getCurrentThread();
-      if (!t) return;
-      t.messages = [];
-      t.updatedAt = new Date().toISOString();
-      saveThreads();
-      renderMessages();
-      statusEl.textContent = "Thread messages cleared.";
-    }
+    async function deleteCurrentThread() {
+      if (!currentThreadId) return;
+      const ok = window.confirm("Delete this thread permanently?");
+      if (!ok) return;
 
-    // ---- Rendering ---- //
+      const resp = await apiFetch(`/threads/${currentThreadId}`, { method: "DELETE" });
+      if (!resp.ok) {
+        console.error(await resp.text());
+        setStatus("Failed to delete thread.");
+        return;
+      }
+      currentThreadId = null;
+      await refreshThreads();
+    }
 
     function renderThreadList() {
       threadListEl.innerHTML = "";
-      threads.forEach((thread) => {
-        const item = document.createElement("div");
-        item.classList.add("thread-item");
-        if (thread.id === currentThreadId) {
-          item.classList.add("active");
-        }
+      threads.forEach((t) => {
+        const div = document.createElement("div");
+        div.classList.add("thread-item");
+        if (t.id === currentThreadId) div.classList.add("active");
 
         const title = document.createElement("div");
         title.classList.add("thread-item-title");
-        title.textContent = thread.name || "Untitled thread";
+        title.textContent = t.name || "Untitled";
 
         const meta = document.createElement("div");
         meta.classList.add("thread-item-meta");
-        const updated = new Date(thread.updatedAt);
-        meta.textContent =
-          `Msgs: ${thread.messages.length || 0} · ` +
-          `Updated: ${updated.toLocaleDateString()} ${updated.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}`;
+        const updated = new Date(t.updated_at);
+        meta.textContent = `Updated: ${updated.toLocaleDateString()} ${updated.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`;
 
-        item.appendChild(title);
-        item.appendChild(meta);
+        div.appendChild(title);
+        div.appendChild(meta);
 
-        item.addEventListener("click", () => {
-          setCurrentThread(thread.id);
+        div.addEventListener("click", async () => {
+          currentThreadId = t.id;
+          renderThreadList();
+          await loadMessages(currentThreadId);
         });
 
-        threadListEl.appendChild(item);
+        threadListEl.appendChild(div);
       });
 
-      const current = getCurrentThread();
-      currentThreadNameEl.textContent = current ? (current.name || "Untitled thread") : "—";
+      const current = threads.find(t => t.id === currentThreadId);
+      currentThreadNameEl.textContent = current ? (current.name || "Untitled") : "—";
+    }
+
+    newThreadBtn.addEventListener("click", () => createThread("New thread"));
+    renameThreadBtn.addEventListener("click", renameCurrentThread);
+    deleteThreadBtn.addEventListener("click", deleteCurrentThread);
+
+    // ==========================
+    // Messages
+    // ==========================
+    async function loadMessages(threadId) {
+      if (!threadId) return;
+      const resp = await apiFetch(`/threads/${threadId}/messages`, { method: "GET" });
+      if (!resp.ok) {
+        console.error(await resp.text());
+        setStatus("Failed to load messages.");
+        return;
+      }
+      messages = await resp.json();
+      renderMessages();
+      setStatus("Ready.");
     }
 
     function renderMessages() {
       chatEl.innerHTML = "";
-      const thread = getCurrentThread();
 
-      if (!thread || !thread.messages.length) {
+      if (!messages.length) {
         const empty = document.createElement("div");
         empty.classList.add("empty-state");
         empty.innerHTML = `
           <h2>Start a conversation</h2>
           <p>
-            Ask about themes in the writing and posts of Ethan Mollick, Andrew Ng,
-            Yann LeCun, Mustafa Suleyman, Demis Hassabis, Fei-Fei Li, Yoshua Bengio, and more —
-            from AI capabilities to work, experimentation, and education. Each thread keeps its
-            own history in this browser.
+            This thread’s history is stored on the backend and will be used as context
+            for future answers (per user).
           </p>
         `;
         chatEl.appendChild(empty);
         chatEl.scrollTop = 0;
-        currentThreadNameEl.textContent = thread ? (thread.name || "Untitled thread") : "—";
         return;
       }
 
-      thread.messages.forEach((msg) => {
+      messages.forEach((m) => {
         const div = document.createElement("div");
-        div.classList.add("message", msg.role);
+        div.classList.add("message", m.role);
 
         const meta = document.createElement("div");
         meta.classList.add("meta");
-        const who = msg.role === "user" ? "You" : "Assistant";
-        const time = new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        const who = m.role === "user" ? "You" : "Assistant";
+        const time = new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
         meta.textContent = `${who} • ${time}`;
 
         const body = document.createElement("div");
-        // Both user and assistant shown as plain text (no Markdown rendering)
-        body.textContent = msg.content;
+        body.textContent = m.content;
 
         div.appendChild(meta);
         div.appendChild(body);
-
-        // Render images if present
-        if (Array.isArray(msg.images) && msg.images.length > 0) {
-          const imagesContainer = document.createElement("div");
-          imagesContainer.classList.add("message-images");
-
-          msg.images.forEach((img) => {
-            if (!img || !img.url) return;
-            const imgEl = document.createElement("img");
-            imgEl.src = img.url;
-            imgEl.alt = img.alt || "Related image";
-            imagesContainer.appendChild(imgEl);
-          });
-
-          div.appendChild(imagesContainer);
-        }
-
         chatEl.appendChild(div);
       });
 
-      chatEl.scrollTop = chatEl.scrollHeight; // keep pinned to bottom
-      currentThreadNameEl.textContent = thread ? (thread.name || "Untitled thread") : "—";
+      chatEl.scrollTop = chatEl.scrollHeight;
     }
 
-    function addMessageToCurrentThread(role, content, images = []) {
-      const thread = getCurrentThread();
-      if (!thread) return;
-      thread.messages.push({
-        role,
-        content,
-        images,
-        timestamp: new Date().toISOString()
+    // ==========================
+    // Sources (Admin toggles)
+    // ==========================
+    async function refreshSources() {
+      const resp = await apiFetch("/sources", { method: "GET" });
+      if (!resp.ok) {
+        console.error(await resp.text());
+        return;
+      }
+      sources = await resp.json();
+      renderSources();
+    }
+
+    function renderSources() {
+      sourcesListEl.innerHTML = "";
+
+      sources.forEach((s) => {
+        const row = document.createElement("div");
+        row.classList.add("source-row");
+
+        const left = document.createElement("div");
+        left.classList.add("source-left");
+
+        const name = document.createElement("div");
+        name.classList.add("source-name");
+        name.textContent = s.display_name;
+
+        const meta = document.createElement("div");
+        meta.classList.add("source-meta");
+        meta.textContent = `${s.source_type} • author_id=${s.author_id}`;
+
+        left.appendChild(name);
+        left.appendChild(meta);
+
+        const right = document.createElement("div");
+        right.classList.add("toggle");
+
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = !!s.enabled;
+
+        const label = document.createElement("span");
+        label.textContent = s.enabled ? "Enabled" : "Disabled";
+
+        cb.addEventListener("change", async () => {
+          const resp = await apiFetch(`/admin/sources/${s.id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ enabled: cb.checked }),
+          });
+
+          if (!resp.ok) {
+            const text = await resp.text();
+            console.warn("Toggle failed:", text);
+            cb.checked = !cb.checked;
+            alert("You are not an admin (Hans/Sanjay/Joseph only, depending on your roles).");
+            return;
+          }
+
+          s.enabled = cb.checked;
+          label.textContent = s.enabled ? "Enabled" : "Disabled";
+        });
+
+        right.appendChild(cb);
+        right.appendChild(label);
+
+        row.appendChild(left);
+        row.appendChild(right);
+
+        sourcesListEl.appendChild(row);
       });
-      thread.updatedAt = new Date().toISOString();
-      saveThreads();
-      renderMessages();
     }
 
-    // ---- Chat sending ---- //
+    refreshSourcesBtn.addEventListener("click", refreshSources);
 
+    // ==========================
+    // Ask
+    // ==========================
     async function sendMessage() {
-      const question = inputEl.value.trim();
-      if (!question) return;
+      const question = (inputEl.value || "").trim();
+      if (!question || !currentThreadId) return;
 
-      addMessageToCurrentThread("user", question);
       inputEl.value = "";
       inputEl.focus();
       sendBtn.disabled = true;
-      statusEl.textContent = "Thinking...";
+      setStatus("Thinking...");
+
+      // optimistic UI: append user message locally
+      messages.push({
+        id: "local-" + Date.now(),
+        role: "user",
+        content: question,
+        created_at: new Date().toISOString(),
+      });
+      renderMessages();
 
       try {
-        const resp = await fetch(API_URL, {
+        const resp = await apiFetch("/ask", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ question, k: 10 }),
+          body: JSON.stringify({
+            thread_id: currentThreadId,
+            question,
+            k: 10,
+            history_limit: 18
+          }),
         });
 
         if (!resp.ok) {
-          addMessageToCurrentThread("assistant", "Sorry, something went wrong with the backend.");
-        } else {
-          const data = await resp.json();
-          addMessageToCurrentThread(
-            "assistant",
-            data.answer || "(No answer returned)",
-            Array.isArray(data.images) ? data.images : []
-          );
+          console.error(await resp.text());
+          messages.push({
+            id: "local-err-" + Date.now(),
+            role: "assistant",
+            content: "Backend error.",
+            created_at: new Date().toISOString(),
+          });
+          renderMessages();
+          setStatus("Error.");
+          return;
         }
-      } catch (err) {
-        console.error(err);
-        addMessageToCurrentThread("assistant", "Network error communicating with backend.");
+
+        await loadMessages(currentThreadId);
+        setStatus("Ready.");
+      } catch (e) {
+        console.error(e);
+        messages.push({
+          id: "local-neterr-" + Date.now(),
+          role: "assistant",
+          content: "Network error communicating with backend.",
+          created_at: new Date().toISOString(),
+        });
+        renderMessages();
+        setStatus("Network error.");
       } finally {
         sendBtn.disabled = false;
-        statusEl.textContent = "Ready.";
       }
     }
 
-    // ---- Event listeners ---- //
-
     sendBtn.addEventListener("click", sendMessage);
-    clearBtn.addEventListener("click", clearCurrentThreadMessages);
-    newThreadBtn.addEventListener("click", () => createThread("New thread"));
-    deleteThreadBtn.addEventListener("click", deleteCurrentThread);
-    renameThreadBtn.addEventListener("click", renameCurrentThread);
-
     inputEl.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
@@ -763,8 +913,17 @@
       }
     });
 
+    // ==========================
     // Init
-    loadThreads();
+    // ==========================
+    (async () => {
+      const session = await loadSession();
+      if (session) {
+        await handleSignedIn(session);
+      } else {
+        showLogin();
+      }
+    })();
   </script>
 </body>
 </html>

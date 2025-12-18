@@ -1,79 +1,316 @@
 import os
-from typing import List, Optional
+from datetime import datetime, timezone
+from typing import List, Optional, Dict, Any
 
-from fastapi import FastAPI
+import jwt  # PyJWT
+from dotenv import load_dotenv
+from fastapi import FastAPI, Header, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from openai import OpenAI
 from pydantic import BaseModel
 from supabase import create_client
-from dotenv import load_dotenv
-from openai import OpenAI
 
 load_dotenv()
 
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+SUPABASE_JWT_SECRET = os.environ["SUPABASE_JWT_SECRET"]
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
-
-# Supabase storage bucket name for images (public)
-SUPABASE_STORAGE_BUCKET_NAME = "post-images"
 
 supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# ---- OpenAI models ----
-# Match this to your openai_post_chunks embeddings (vector(1536), text-embedding-3-small).
+# Your OpenAI embedding tables default to text-embedding-3-small
 EMBEDDING_MODEL = "text-embedding-3-small"
 CHAT_MODEL = "gpt-4.1"
 
-app = FastAPI(title="AI Luminaries RAG Assistant")
-
-# ---------- CORS (allow everything for prototype) ---------- #
+app = FastAPI(title="AI Luminaries RAG Assistant (Persistent + Admin Sources)")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],      # allow any origin (GitHub Pages, localhost, etc.)
-    allow_credentials=False,  # we don't use cookies/sessions
-    allow_methods=["*"],      # allow all HTTP methods
-    allow_headers=["*"],      # allow all request headers
+    allow_origins=["*"],      # prototype: allow GitHub Pages + localhost
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# ---------- Health check/root ---------- #
 
+# ----------------------------
+# Auth
+# ----------------------------
+
+class AuthedUser(BaseModel):
+    user_id: str
+
+
+def get_user_from_bearer(authorization: Optional[str] = Header(default=None)) -> AuthedUser:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Missing Authorization Bearer token")
+
+    token = authorization.split(" ", 1)[1].strip()
+    try:
+        payload = jwt.decode(
+            token,
+            SUPABASE_JWT_SECRET,
+            algorithms=["HS256"],
+            options={"verify_aud": False},
+        )
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Token missing sub")
+
+    return AuthedUser(user_id=user_id)
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def is_admin(user_id: str) -> bool:
+    resp = (
+        supabase.table("app_users")
+        .select("role")
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
+    row = (resp.data or [None])[0]
+    return bool(row and row.get("role") == "admin")
+
+
+# ----------------------------
+# Models
+# ----------------------------
+
+class AskRequest(BaseModel):
+    thread_id: str
+    question: str
+    k: int = 10
+    history_limit: int = 18
+
+
+class AskResponse(BaseModel):
+    answer: str
+
+
+class ThreadCreateRequest(BaseModel):
+    name: Optional[str] = "New thread"
+
+
+class ThreadRenameRequest(BaseModel):
+    name: str
+
+
+class ThreadOut(BaseModel):
+    id: str
+    name: str
+    created_at: str
+    updated_at: str
+
+
+class MessageOut(BaseModel):
+    id: str
+    role: str
+    content: str
+    created_at: str
+
+
+class SourceOut(BaseModel):
+    id: str
+    source_type: str
+    author_id: int
+    display_name: str
+    enabled: bool
+
+
+class SourceToggleRequest(BaseModel):
+    enabled: bool
+
+
+# ----------------------------
+# Health
+# ----------------------------
 
 @app.get("/")
 def root():
     return {"status": "ok", "service": "ai-luminaries-assistant"}
 
 
-# ---------- Pydantic models ---------- #
+# ----------------------------
+# Threads & Messages (Feature 1)
+# ----------------------------
+
+@app.get("/threads", response_model=List[ThreadOut])
+def list_threads(user: AuthedUser = Depends(get_user_from_bearer)):
+    resp = (
+        supabase.table("chat_threads")
+        .select("id, name, created_at, updated_at")
+        .eq("user_id", user.user_id)
+        .order("updated_at", desc=True)
+        .execute()
+    )
+    return resp.data or []
 
 
-class ImageRef(BaseModel):
-    url: str
-    alt: Optional[str] = None
+@app.post("/threads", response_model=ThreadOut)
+def create_thread(req: ThreadCreateRequest, user: AuthedUser = Depends(get_user_from_bearer)):
+    payload = {
+        "user_id": user.user_id,
+        "name": (req.name or "New thread").strip() or "New thread",
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    resp = supabase.table("chat_threads").insert(payload).execute()
+    row = (resp.data or [None])[0]
+    if not row:
+        raise HTTPException(status_code=500, detail="Failed to create thread")
+    return row
 
 
-class AskRequest(BaseModel):
-    question: str
-    # slightly higher default k so the model has more to work with
-    k: int = 10
+@app.patch("/threads/{thread_id}", response_model=ThreadOut)
+def rename_thread(thread_id: str, req: ThreadRenameRequest, user: AuthedUser = Depends(get_user_from_bearer)):
+    # ownership check
+    chk = (
+        supabase.table("chat_threads")
+        .select("id")
+        .eq("id", thread_id)
+        .eq("user_id", user.user_id)
+        .limit(1)
+        .execute()
+    )
+    if not (chk.data or []):
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    resp = (
+        supabase.table("chat_threads")
+        .update({"name": req.name.strip() or "New thread", "updated_at": now_iso()})
+        .eq("id", thread_id)
+        .eq("user_id", user.user_id)
+        .execute()
+    )
+    row = (resp.data or [None])[0]
+    if not row:
+        raise HTTPException(status_code=500, detail="Failed to rename thread")
+    return row
 
 
-class AskResponse(BaseModel):
-    answer: str
-    images: List[ImageRef] = []
+@app.delete("/threads/{thread_id}")
+def delete_thread(thread_id: str, user: AuthedUser = Depends(get_user_from_bearer)):
+    # delete only if owned
+    supabase.table("chat_threads").delete().eq("id", thread_id).eq("user_id", user.user_id).execute()
+    return {"deleted": True}
 
 
-# ---------- Helpers ---------- #
+@app.get("/threads/{thread_id}/messages", response_model=List[MessageOut])
+def list_messages(thread_id: str, user: AuthedUser = Depends(get_user_from_bearer)):
+    # ownership check
+    chk = (
+        supabase.table("chat_threads")
+        .select("id")
+        .eq("id", thread_id)
+        .eq("user_id", user.user_id)
+        .limit(1)
+        .execute()
+    )
+    if not (chk.data or []):
+        raise HTTPException(status_code=404, detail="Thread not found")
 
+    resp = (
+        supabase.table("chat_messages")
+        .select("id, role, content, created_at")
+        .eq("thread_id", thread_id)
+        .eq("user_id", user.user_id)
+        .order("created_at", desc=False)
+        .execute()
+    )
+    return resp.data or []
+
+
+def insert_message(thread_id: str, user_id: str, role: str, content: str):
+    supabase.table("chat_messages").insert(
+        {
+            "thread_id": thread_id,
+            "user_id": user_id,
+            "role": role,
+            "content": content,
+            "created_at": now_iso(),
+        }
+    ).execute()
+    supabase.table("chat_threads").update({"updated_at": now_iso()}).eq("id", thread_id).eq("user_id", user_id).execute()
+
+
+def fetch_recent_messages(thread_id: str, user_id: str, limit: int) -> List[Dict[str, str]]:
+    resp = (
+        supabase.table("chat_messages")
+        .select("role, content")
+        .eq("thread_id", thread_id)
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    rows = resp.data or []
+    rows.reverse()
+    return [{"role": r["role"], "content": r["content"]} for r in rows if r.get("role") and r.get("content")]
+
+
+# ----------------------------
+# Admin Sources (Feature 3)
+# ----------------------------
+
+@app.get("/sources", response_model=List[SourceOut])
+def list_sources(user: AuthedUser = Depends(get_user_from_bearer)):
+    # everyone can read enabled_sources (RLS allows select-all)
+    resp = (
+        supabase.table("enabled_sources")
+        .select("id, source_type, author_id, display_name, enabled")
+        .order("display_name", desc=False)
+        .execute()
+    )
+    return resp.data or []
+
+
+@app.patch("/admin/sources/{source_id}", response_model=SourceOut)
+def admin_toggle_source(source_id: str, req: SourceToggleRequest, user: AuthedUser = Depends(get_user_from_bearer)):
+    if not is_admin(user.user_id):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    resp = (
+        supabase.table("enabled_sources")
+        .update({"enabled": req.enabled, "updated_at": now_iso()})
+        .eq("id", source_id)
+        .execute()
+    )
+    row = (resp.data or [None])[0]
+    if not row:
+        raise HTTPException(status_code=404, detail="Source not found")
+    return row
+
+
+def get_enabled_author_ids() -> Dict[str, Optional[List[int]]]:
+    resp = (
+        supabase.table("enabled_sources")
+        .select("source_type, author_id")
+        .eq("enabled", True)
+        .execute()
+    )
+    rows = resp.data or []
+    li_ids = sorted({r["author_id"] for r in rows if r.get("source_type") == "linkedin"})
+    x_ids = sorted({r["author_id"] for r in rows if r.get("source_type") == "x"})
+    return {
+        "linkedin_author_ids": li_ids if li_ids else None,
+        "x_author_ids": x_ids if x_ids else None,
+    }
+
+
+# ----------------------------
+# RAG helpers (OpenAI-only)
+# ----------------------------
 
 def embed_query(query: str) -> List[float]:
-    """
-    Embed the user's question using the OpenAI embedding model.
-
-    NOTE: Your openai_post_chunks table should also use this same model
-    (text-embedding-3-small) for good similarity behavior.
-    """
     resp = client.embeddings.create(
         model=EMBEDDING_MODEL,
         input=query,
@@ -81,142 +318,69 @@ def embed_query(query: str) -> List[float]:
     return resp.data[0].embedding
 
 
-def retrieve_chunks(query: str, k: int) -> List[dict]:
-    """
-    Call match_openai_post_chunks via Supabase RPC to get relevant chunks.
-
-    Expected RPC signature:
-
-    create or replace function public.match_openai_post_chunks(
-      query_embedding vector(1536),
-      match_count int
-    )
-    returns table (
-      id uuid,
-      post_id uuid,
-      chunk_index int,
-      chunk_text text,
-      similarity double precision,
-      posted_at text,
-      linkedin_url text
-    );
-    """
+def retrieve_chunks(query: str, k: int) -> List[Dict[str, Any]]:
     q_emb = embed_query(query)
-    rpc_response = supabase.rpc(
-        "match_openai_post_chunks",
+    enabled = get_enabled_author_ids()
+
+    rpc = supabase.rpc(
+        "match_all_openai_chunks_filtered",
         {
             "query_embedding": q_emb,
             "match_count": k,
+            "enabled_linkedin_author_ids": enabled["linkedin_author_ids"],
+            "enabled_x_author_ids": enabled["x_author_ids"],
         },
     ).execute()
-    return rpc_response.data or []
+
+    return rpc.data or []
 
 
-def build_context(chunks: List[dict]) -> str:
-    """
-    Turn retrieved chunks into a context block for the LLM.
-    We keep light metadata (like posted_at) purely for the model's reasoning.
-    """
-    lines = []
-    for i, ch in enumerate(chunks):
-        posted_at = ch.get("posted_at") or "unknown date"
-        url = ch.get("linkedin_url") or "unknown url"
-        text = (ch.get("chunk_text") or "").strip()
+def build_context(chunks: List[Dict[str, Any]]) -> str:
+    lines: List[str] = []
+    for c in chunks:
+        author = c.get("author_name") or "Unknown"
+        src = c.get("source_type") or "unknown"
+        url = c.get("url") or "unknown url"
+        posted_at = c.get("posted_at") or "unknown date"
+        text = (c.get("chunk_text") or "").strip()
         if not text:
             continue
-
-        # Internal structure for the model.
-        lines.append(
-            f"Excerpt {i+1} (posted_at={posted_at}, url={url}):\n{text}\n"
-        )
+        lines.append(f"{author} ({src}, {posted_at}, {url}):\n{text}")
     return "\n\n".join(lines)
 
 
-def retrieve_image_urls_for_chunks(chunks: List[dict], max_images: int = 6) -> List[ImageRef]:
-    """
-    Given the chunks returned from match_openai_post_chunks, fetch associated image URLs
-    from the 'post-images' Supabase Storage bucket.
-
-    - Uses post_id from chunks.
-    - Looks up rows in post_images for those post_ids.
-    - Builds public URLs using Supabase Storage's get_public_url.
-    - Filters out *profile photos* based on original_src_url containing 'profile-displayphoto'.
-    """
-    post_ids = {ch.get("post_id") for ch in chunks if ch.get("post_id") is not None}
-    if not post_ids:
-        return []
-
-    resp = (
-        supabase
-        .table("post_images")
-        .select("post_id, storage_path, original_src_url, position")
-        .in_("post_id", list(post_ids))
-        .order("position", desc=False)
-        .execute()
-    )
-
-    rows = resp.data or []
-    image_refs: List[ImageRef] = []
-
-    storage = supabase.storage.from_(SUPABASE_STORAGE_BUCKET_NAME)
-
-    for row in rows:
-        storage_path = row.get("storage_path")
-        if not storage_path:
-            continue
-
-        original_src_url = (row.get("original_src_url") or "").lower()
-
-        # --- Skip LinkedIn profile photos ---
-        # Example:
-        # https://media.licdn.com/.../profile-displayphoto-shrink_100_100/...
-        if "profile-displayphoto" in original_src_url:
-            continue
-        # ------------------------------------
-
-        res = storage.get_public_url(storage_path)
-        if isinstance(res, dict):
-            public_url = (
-                res.get("data", {}).get("publicUrl")
-                or res.get("publicURL")
-                or res.get("publicUrl")
-            )
-        else:
-            public_url = str(res)
-
-        if not public_url:
-            continue
-
-        image_refs.append(ImageRef(url=public_url, alt="Image from source post"))
-
-        if len(image_refs) >= max_images:
-            break
-
-    return image_refs
-
-
-# ---------- FastAPI endpoint ---------- #
-
+# ----------------------------
+# Ask endpoint (Feature 1 + 3)
+# ----------------------------
 
 @app.post("/ask", response_model=AskResponse)
-def ask(req: AskRequest):
-    # 1) Retrieve relevant chunks
-    chunks = retrieve_chunks(req.question, req.k)
+def ask(req: AskRequest, user: AuthedUser = Depends(get_user_from_bearer)):
+    # Verify thread ownership
+    chk = (
+        supabase.table("chat_threads")
+        .select("id")
+        .eq("id", req.thread_id)
+        .eq("user_id", user.user_id)
+        .limit(1)
+        .execute()
+    )
+    if not (chk.data or []):
+        raise HTTPException(status_code=404, detail="Thread not found")
 
-    if not chunks:
-        return AskResponse(
-            answer=(
-                "The current body of posts doesn't directly address that question. "
-                "Try asking about topics these authors are known to explore—such as AI, work, "
-                "management, education, experimentation, or emerging AI capabilities."
-            ),
-            images=[],
-        )
+    question = (req.question or "").strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Empty question")
 
-    context = build_context(chunks)
+    # Save user message
+    insert_message(req.thread_id, user.user_id, "user", question)
 
-    # 2) System-style instructions (multi-author Ethan-centered prompt)
-    #    Updated to avoid Markdown in the output.
+    # Retrieve chunks (filtered by enabled_sources)
+    chunks = retrieve_chunks(question, req.k)
+    context = build_context(chunks) if chunks else ""
+
+    # Load conversation history
+    history = fetch_recent_messages(req.thread_id, user.user_id, limit=max(0, min(req.history_limit, 40)))
+
     system_prompt = """
 SYSTEM PROMPT: THE CO-INTELLIGENT STRATEGIC ENGINE
 1. IDENTITY & PURPOSE
@@ -279,34 +443,30 @@ Bias: Bias toward practicality. We are building things, not just theorizing. If 
 -Never comment on whether images are shown or not in the interface.
 """
 
-    # 3) Messages for OpenAI chat API
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {
-            "role": "user",
-            "content": (
-                f"User question:\n{req.question}\n\n"
-                f"Here is your knowledge base for this question (drawn from posts and related content):\n\n"
-                f"{context}\n\n"
-                "Using ONLY the above material as factual grounding, write a detailed, thoughtful answer. "
-                "Synthesize across ideas and authors, highlight tensions or evolution where appropriate, and make the "
-                "practical implications clear. Remember: write in plain text, no Markdown formatting."
-            ),
-        },
-    ]
-
-    # 4) Call OpenAI Chat Completions
-    resp = client.chat.completions.create(
-        model=CHAT_MODEL,
-        messages=messages,
-        temperature=0.7,
+    user_block = (
+        f"User question:\n{question}\n\n"
+        f"Relevant excerpts:\n{context if context else '(No relevant excerpts found)'}\n\n"
+        "Answer now, grounded in the excerpts and consistent with the conversation so far."
     )
-    answer_text = resp.choices[0].message.content
 
-    # 5) Retrieve associated images for these chunks (filtered to avoid profile pics)
-    images = retrieve_image_urls_for_chunks(chunks)
+    messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
+    for m in history:
+        if m["role"] in ("user", "assistant"):
+            messages.append({"role": m["role"], "content": m["content"]})
+    messages.append({"role": "user", "content": user_block})
 
-    return AskResponse(
-        answer=answer_text,
-        images=images,
-    )
+    try:
+        resp = client.chat.completions.create(
+            model=CHAT_MODEL,
+            messages=messages,
+            temperature=0.7,
+        )
+        answer_text = (resp.choices[0].message.content or "").strip()
+    except Exception as e:
+        # If OpenAI errors, return a clean backend message (and still keep history consistent)
+        raise HTTPException(status_code=500, detail=f"LLM error: {str(e)}")
+
+    # Save assistant message
+    insert_message(req.thread_id, user.user_id, "assistant", answer_text or "(No answer returned)")
+
+    return AskResponse(answer=answer_text or "(No answer returned)")
