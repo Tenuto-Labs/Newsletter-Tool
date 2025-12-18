@@ -259,7 +259,7 @@
       border-radius: 12px;
       font-size: 14px;
       line-height: 1.55;
-      white-space: pre-wrap;
+      white-space: pre-wrap; /* plain text formatting */
       background: #f7f3ea;
       border: 1px solid var(--border-subtle);
     }
@@ -372,15 +372,24 @@
   <div id="loginView" class="login-shell hide">
     <h2>Sign in</h2>
     <div class="muted">
-      This tool uses Supabase Auth. Enter your email to receive a magic link.
+      Access is restricted to the Tenuto allowlist. Use password login (recommended) or magic link (fallback).
     </div>
+
     <div class="login-row">
       <input id="emailInput" type="email" placeholder="you@tenutolabs.com" />
-      <button id="magicLinkBtn" class="btn-primary">Send magic link</button>
     </div>
-    <div class="muted">
-      After you click the magic link, you’ll be signed in automatically here.
+
+    <div class="login-row">
+      <input id="passwordInput" type="password" placeholder="password" />
+      <button id="passwordLoginBtn" class="btn-primary">Sign in</button>
     </div>
+
+    <div class="muted">Or:</div>
+
+    <div class="login-row">
+      <button id="magicLinkBtn">Send magic link</button>
+    </div>
+
     <div class="status-bar">
       <span id="loginStatus">Ready.</span>
     </div>
@@ -430,7 +439,7 @@
           </div>
         </div>
         <p class="muted" style="margin:6px 0 0;">
-          Persistent memory is stored per user in Supabase. Replies are plain text (no Markdown).
+          Persistent memory is stored per user in Supabase. Replies are plain text.
         </p>
       </header>
 
@@ -455,12 +464,16 @@
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF6em54bmlkeWhxYWRnc3V0dmtiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMxMzk0NTQsImV4cCI6MjA3ODcxNTQ1NH0.pRK0EnPp6jiXq10ySx7WKiHXHI7S9KwzOBSnXxqsBiQ";
     const API_BASE_URL = "https://newsletter-tool-mfsi.onrender.com"; // your Render backend base URL
 
-    // Allowlist gate (UI-level)
+    // Allowlist gate (hard-coded)
     const ALLOWED_EMAILS = new Set([
-      "hans@tenutolabs.com",
-      "sanjay@tenutolabs.com",
       "joseph@tenutolabs.com",
+      "hans@tenutolabs.com",
+      "sanjay@tenutolabs.com"
     ]);
+
+    // For GitHub Pages, this will be your deployed page URL (not localhost)
+    // Example: https://user.github.io/repo/
+    const REDIRECT_URL = window.location.origin + window.location.pathname;
 
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -471,6 +484,8 @@
     const appView = document.getElementById("appView");
 
     const emailInput = document.getElementById("emailInput");
+    const passwordInput = document.getElementById("passwordInput");
+    const passwordLoginBtn = document.getElementById("passwordLoginBtn");
     const magicLinkBtn = document.getElementById("magicLinkBtn");
     const loginStatus = document.getElementById("loginStatus");
 
@@ -530,13 +545,23 @@
       return resp;
     }
 
+    function normalizeEmail(email) {
+      return (email || "").trim().toLowerCase();
+    }
+
+    function enforceAllowlist(email) {
+      const e = normalizeEmail(email);
+      if (!e) throw new Error("Enter your email.");
+      if (!ALLOWED_EMAILS.has(e)) throw new Error("This email is not authorized for this tool.");
+      return e;
+    }
+
     // ==========================
     // Auth
     // ==========================
     async function loadSession() {
       const { data } = await supabaseClient.auth.getSession();
       const session = data?.session || null;
-      if (!session) return null;
       return session;
     }
 
@@ -561,34 +586,62 @@
       showLogin();
     }
 
-    // Keep email lowercase in UI
+    // keep email lower-cased visually
     emailInput.addEventListener("input", () => {
-      emailInput.value = (emailInput.value || "").toLowerCase();
+      emailInput.value = normalizeEmail(emailInput.value);
     });
 
-    magicLinkBtn.addEventListener("click", async () => {
-      const email = ((emailInput.value || "").trim()).toLowerCase();
-      if (!email) return;
-
-      // Allowlist gate
-      if (!ALLOWED_EMAILS.has(email)) {
-        loginStatus.textContent = "This email is not authorized for this tool.";
-        return;
-      }
-
-      loginStatus.textContent = "Sending magic link...";
-      const { error } = await supabaseClient.auth.signInWithOtp({
-        email,
-        options: {
-          emailRedirectTo: window.location.href, // keep it simple
+    // Password login (recommended)
+    passwordLoginBtn.addEventListener("click", async () => {
+      try {
+        const email = enforceAllowlist(emailInput.value);
+        const password = (passwordInput.value || "").trim();
+        if (!password) {
+          loginStatus.textContent = "Enter your password.";
+          return;
         }
-      });
 
-      if (error) {
-        console.error(error);
-        loginStatus.textContent = "Error sending link.";
-      } else {
-        loginStatus.textContent = "Magic link sent. Check your email.";
+        loginStatus.textContent = "Signing in...";
+        const { data, error } = await supabaseClient.auth.signInWithPassword({
+          email,
+          password,
+        });
+
+        if (error) {
+          console.error(error);
+          loginStatus.textContent = "Login failed. Check email/password.";
+          return;
+        }
+
+        loginStatus.textContent = "Signed in.";
+        // onAuthStateChange will load the app
+      } catch (e) {
+        loginStatus.textContent = e?.message || "Login failed.";
+      }
+    });
+
+    // Magic link fallback
+    magicLinkBtn.addEventListener("click", async () => {
+      try {
+        const email = enforceAllowlist(emailInput.value);
+
+        loginStatus.textContent = "Sending magic link...";
+        const { error } = await supabaseClient.auth.signInWithOtp({
+          email,
+          options: {
+            // IMPORTANT: Uses your deployed URL dynamically (GitHub Pages)
+            emailRedirectTo: REDIRECT_URL,
+          }
+        });
+
+        if (error) {
+          console.error(error);
+          loginStatus.textContent = "Error sending link.";
+        } else {
+          loginStatus.textContent = "Magic link sent. Check your email.";
+        }
+      } catch (e) {
+        loginStatus.textContent = e?.message || "Not allowed.";
       }
     });
 
@@ -616,7 +669,6 @@
       }
       threads = await resp.json();
 
-      // Auto-select first thread or create one
       if (!threads.length) {
         await createThread("New thread");
         return;
@@ -739,8 +791,7 @@
         empty.innerHTML = `
           <h2>Start a conversation</h2>
           <p>
-            This thread’s history is stored on the backend and will be used as context
-            for future answers (per user).
+            This thread’s history is stored on the backend and used as context for future answers (per user).
           </p>
         `;
         chatEl.appendChild(empty);
@@ -759,7 +810,7 @@
         meta.textContent = `${who} • ${time}`;
 
         const body = document.createElement("div");
-        body.textContent = m.content;
+        body.textContent = m.content; // plain text output
 
         div.appendChild(meta);
         div.appendChild(body);
@@ -823,7 +874,7 @@
             const text = await resp.text();
             console.warn("Toggle failed:", text);
             cb.checked = !cb.checked;
-            alert("You are not an admin (Hans/Sanjay/Joseph only, depending on your roles).");
+            alert("You are not an admin.");
             return;
           }
 
