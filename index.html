@@ -94,7 +94,6 @@
       white-space: nowrap;
       font-family: inherit;
     }
-
     button:hover { background: #f0ece3; }
 
     .btn-primary {
@@ -259,7 +258,7 @@
       border-radius: 12px;
       font-size: 14px;
       line-height: 1.55;
-      white-space: pre-wrap; /* plain text formatting */
+      white-space: pre-wrap;
       background: #f7f3ea;
       border: 1px solid var(--border-subtle);
     }
@@ -372,7 +371,7 @@
   <div id="loginView" class="login-shell hide">
     <h2>Sign in</h2>
     <div class="muted">
-      Access is restricted to the Tenuto allowlist. Use password login (recommended) or magic link (fallback).
+      Password login only. Access is restricted to the Tenuto allowlist.
     </div>
 
     <div class="login-row">
@@ -382,12 +381,6 @@
     <div class="login-row">
       <input id="passwordInput" type="password" placeholder="password" />
       <button id="passwordLoginBtn" class="btn-primary">Sign in</button>
-    </div>
-
-    <div class="muted">Or:</div>
-
-    <div class="login-row">
-      <button id="magicLinkBtn">Send magic link</button>
     </div>
 
     <div class="status-bar">
@@ -462,18 +455,13 @@
     // ==========================
     const SUPABASE_URL = "https://qzznxnidyhqadgsutvkb.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF6em54bmlkeWhxYWRnc3V0dmtiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMxMzk0NTQsImV4cCI6MjA3ODcxNTQ1NH0.pRK0EnPp6jiXq10ySx7WKiHXHI7S9KwzOBSnXxqsBiQ";
-    const API_BASE_URL = "https://newsletter-tool-mfsi.onrender.com"; // your Render backend base URL
+    const API_BASE_URL = "https://newsletter-tool-mfsi.onrender.com";
 
-    // Allowlist gate (hard-coded)
     const ALLOWED_EMAILS = new Set([
       "joseph@tenutolabs.com",
       "hans@tenutolabs.com",
       "sanjay@tenutolabs.com"
     ]);
-
-    // For GitHub Pages, this will be your deployed page URL (not localhost)
-    // Example: https://user.github.io/repo/
-    const REDIRECT_URL = window.location.origin + window.location.pathname;
 
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -486,7 +474,6 @@
     const emailInput = document.getElementById("emailInput");
     const passwordInput = document.getElementById("passwordInput");
     const passwordLoginBtn = document.getElementById("passwordLoginBtn");
-    const magicLinkBtn = document.getElementById("magicLinkBtn");
     const loginStatus = document.getElementById("loginStatus");
 
     const logoutBtn = document.getElementById("logoutBtn");
@@ -561,8 +548,7 @@
     // ==========================
     async function loadSession() {
       const { data } = await supabaseClient.auth.getSession();
-      const session = data?.session || null;
-      return session;
+      return data?.session || null;
     }
 
     async function handleSignedIn(session) {
@@ -586,12 +572,10 @@
       showLogin();
     }
 
-    // keep email lower-cased visually
     emailInput.addEventListener("input", () => {
       emailInput.value = normalizeEmail(emailInput.value);
     });
 
-    // Password login (recommended)
     passwordLoginBtn.addEventListener("click", async () => {
       try {
         const email = enforceAllowlist(emailInput.value);
@@ -602,10 +586,7 @@
         }
 
         loginStatus.textContent = "Signing in...";
-        const { data, error } = await supabaseClient.auth.signInWithPassword({
-          email,
-          password,
-        });
+        const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
 
         if (error) {
           console.error(error);
@@ -614,34 +595,8 @@
         }
 
         loginStatus.textContent = "Signed in.";
-        // onAuthStateChange will load the app
       } catch (e) {
         loginStatus.textContent = e?.message || "Login failed.";
-      }
-    });
-
-    // Magic link fallback
-    magicLinkBtn.addEventListener("click", async () => {
-      try {
-        const email = enforceAllowlist(emailInput.value);
-
-        loginStatus.textContent = "Sending magic link...";
-        const { error } = await supabaseClient.auth.signInWithOtp({
-          email,
-          options: {
-            // IMPORTANT: Uses your deployed URL dynamically (GitHub Pages)
-            emailRedirectTo: REDIRECT_URL,
-          }
-        });
-
-        if (error) {
-          console.error(error);
-          loginStatus.textContent = "Error sending link.";
-        } else {
-          loginStatus.textContent = "Magic link sent. Check your email.";
-        }
-      } catch (e) {
-        loginStatus.textContent = e?.message || "Not allowed.";
       }
     });
 
@@ -683,10 +638,7 @@
     }
 
     async function createThread(name) {
-      const resp = await apiFetch("/threads", {
-        method: "POST",
-        body: JSON.stringify({ name }),
-      });
+      const resp = await apiFetch("/threads", { method: "POST", body: JSON.stringify({ name }) });
       if (!resp.ok) {
         console.error(await resp.text());
         setStatus("Failed to create thread.");
@@ -810,7 +762,7 @@
         meta.textContent = `${who} • ${time}`;
 
         const body = document.createElement("div");
-        body.textContent = m.content; // plain text output
+        body.textContent = m.content; // plain text (no markdown rendering)
 
         div.appendChild(meta);
         div.appendChild(body);
@@ -821,7 +773,7 @@
     }
 
     // ==========================
-    // Sources (Admin toggles)
+    // Sources
     // ==========================
     async function refreshSources() {
       const resp = await apiFetch("/sources", { method: "GET" });
@@ -871,8 +823,7 @@
           });
 
           if (!resp.ok) {
-            const text = await resp.text();
-            console.warn("Toggle failed:", text);
+            console.warn("Toggle failed:", await resp.text());
             cb.checked = !cb.checked;
             alert("You are not an admin.");
             return;
@@ -906,7 +857,6 @@
       sendBtn.disabled = true;
       setStatus("Thinking...");
 
-      // optimistic UI: append user message locally
       messages.push({
         id: "local-" + Date.now(),
         role: "user",
