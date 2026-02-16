@@ -1,3 +1,11 @@
 .env
+.DS_Store
+__pycache__/
+*.pyc
+
 state.json
 x_state.json
+
+newsletter.html
+newsletter.md
+newsletter.txt
