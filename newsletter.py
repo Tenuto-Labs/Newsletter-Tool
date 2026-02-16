@@ -1,7 +1,8 @@
 import os
 import re
+import json
 from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Tuple
 
 from supabase import create_client, Client
 from dotenv import load_dotenv
@@ -39,6 +40,8 @@ SMTP_USER = os.environ.get("SMTP_USER")
 SMTP_PASS = os.environ.get("SMTP_PASS")
 NEWSLETTER_FROM_NAME = os.environ.get("NEWSLETTER_FROM_NAME", "AI Newsletter")
 NEWSLETTER_RECIPIENTS_ENV = os.environ.get("NEWSLETTER_RECIPIENTS", "")
+NEWSLETTER_ISSUES_TABLE = os.environ.get("NEWSLETTER_ISSUES_TABLE", "newsletter_issues")
+HISTORY_ISSUES_TO_LOAD = int(os.environ.get("HISTORY_ISSUES_TO_LOAD", "3"))
 
 
 def get_supabase_client() -> Client:
@@ -453,6 +456,14 @@ Do not use <style> blocks. Inline styles are allowed.\n
 Conclude with a end line "*The Signal is published weekly by Tenuto Labs. If you need help turning AI insight into business strategy, [let's talk](https://tenutolabs.com).*"
 """
 
+BIG_STORY_VARIETY_ADDENDUM = """
+\n\n---\n\n## BIG STORY VARIETY REQUIREMENT\n
+You will also receive summaries of recent issues. Use that history to avoid repetition.\n
+The Big Story must be materially different from the most recent issue's Big Story, unless the source material provides no meaningful alternative.\n
+If overlap is unavoidable, explicitly state what is newly different this week.\n
+Do not recycle the same lead framing, same central claim, or same primary angle as recent issues.\n
+"""
+
 
 def wrap_email_template(inner_html: str, issue_date: str) -> str:
     return f"""<!doctype html>
@@ -509,20 +520,189 @@ def ensure_html_fragment(raw: str) -> str:
     return raw
 
 
+def fetch_recent_newsletter_issues(supabase: Client, limit: int = HISTORY_ISSUES_TO_LOAD) -> List[Dict[str, Any]]:
+    try:
+        res = (
+            supabase.table(NEWSLETTER_ISSUES_TABLE)
+            .select("id, issue_date, subject, big_story_title, big_story_summary, created_at")
+            .order("issue_date", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return res.data or []
+    except Exception as e:
+        print(f"Warning: could not fetch recent newsletter issue history ({e}). Continuing without history.")
+        return []
+
+
+def build_recent_issues_context(issues: List[Dict[str, Any]]) -> str:
+    if not issues:
+        return ""
+
+    lines: List[str] = ["=== RECENT ISSUES (USE TO AVOID REPETITION) ==="]
+    for idx, issue in enumerate(issues, start=1):
+        issue_date = issue.get("issue_date") or issue.get("created_at") or "unknown date"
+        subject = issue.get("subject") or "unknown subject"
+        big_story_title = issue.get("big_story_title") or "unknown big story title"
+        big_story_summary = issue.get("big_story_summary") or "unknown big story summary"
+        lines.append(f"{idx}. Date: {issue_date}")
+        lines.append(f"   Subject: {subject}")
+        lines.append(f"   Big Story Title: {big_story_title}")
+        lines.append(f"   Big Story Summary: {big_story_summary}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def strip_html_tags(text: str) -> str:
+    clean = re.sub(r"<[^>]+>", " ", text or "")
+    clean = re.sub(r"\s+", " ", clean).strip()
+    return clean
+
+
+def extract_big_story_fields(html: str) -> Tuple[str, str]:
+    """
+    Best-effort extraction for (big_story_title, big_story_summary).
+    Uses LLM extraction first; if it fails, falls back to regex parsing.
+    """
+    try:
+        resp = client.chat.completions.create(
+            model=CHAT_MODEL,
+            temperature=0,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Extract the Big Story from the provided newsletter HTML. "
+                        "Return JSON with keys: big_story_title, big_story_summary. "
+                        "big_story_summary should be 2-4 sentences max."
+                    ),
+                },
+                {"role": "user", "content": html[:18000]},
+            ],
+            response_format={"type": "json_object"},
+        )
+        raw = (resp.choices[0].message.content or "").strip()
+        payload = json.loads(raw)
+        title = (payload.get("big_story_title") or "").strip()
+        summary = (payload.get("big_story_summary") or "").strip()
+        if title or summary:
+            return title or "Unknown Big Story", summary or "Summary unavailable."
+    except Exception:
+        pass
+
+    # Fallback parser
+    m = re.search(
+        r"<h2[^>]*>\s*(?:The\s+Big\s+Story:?\s*)?(.*?)\s*</h2>(.*?)(?:<h2[^>]*>|$)",
+        html,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if m:
+        title = strip_html_tags(m.group(1))
+        body = strip_html_tags(m.group(2))
+        body_sentences = re.split(r"(?<=[.!?])\s+", body)
+        summary = " ".join(body_sentences[:4]).strip()
+        return title or "Unknown Big Story", summary or "Summary unavailable."
+
+    text = strip_html_tags(html)
+    return "Unknown Big Story", (text[:600] + "...") if len(text) > 600 else text
+
+
+def evaluate_big_story_novelty(
+    current_html: str,
+    recent_issues: List[Dict[str, Any]],
+) -> Tuple[bool, str]:
+    """
+    Returns (is_pass, reason). If evaluation fails, default to pass.
+    """
+    if not recent_issues:
+        return True, "No prior issues available."
+
+    latest = recent_issues[0]
+    prev_title = latest.get("big_story_title") or "Unknown Big Story"
+    prev_summary = latest.get("big_story_summary") or ""
+    current_title, current_summary = extract_big_story_fields(current_html)
+
+    eval_prompt = (
+        "Assess whether the NEW Big Story is materially different from LAST WEEK's Big Story.\n"
+        "Return strict JSON: {\"decision\":\"PASS|FAIL\",\"reason\":\"...\"}.\n\n"
+        f"LAST WEEK TITLE: {prev_title}\n"
+        f"LAST WEEK SUMMARY: {prev_summary}\n\n"
+        f"NEW TITLE: {current_title}\n"
+        f"NEW SUMMARY: {current_summary}\n"
+    )
+    try:
+        resp = client.chat.completions.create(
+            model=CHAT_MODEL,
+            temperature=0,
+            messages=[
+                {"role": "system", "content": "You are a strict editorial QA checker."},
+                {"role": "user", "content": eval_prompt},
+            ],
+            response_format={"type": "json_object"},
+        )
+        payload = json.loads((resp.choices[0].message.content or "").strip())
+        decision = (payload.get("decision") or "").strip().upper()
+        reason = (payload.get("reason") or "No reason provided.").strip()
+        return decision == "PASS", reason
+    except Exception as e:
+        return True, f"Novelty check skipped due to evaluator error: {e}"
+
+
+def save_newsletter_issue(
+    supabase: Client,
+    issue_date: str,
+    subject: str,
+    html_body: str,
+    big_story_title: str,
+    big_story_summary: str,
+    source_window_start: str,
+    source_window_end: str,
+):
+    payload = {
+        "issue_date": issue_date,
+        "subject": subject,
+        "big_story_title": big_story_title,
+        "big_story_summary": big_story_summary,
+        "html_body": html_body,
+        "source_window_start": source_window_start,
+        "source_window_end": source_window_end,
+    }
+    supabase.table(NEWSLETTER_ISSUES_TABLE).insert(payload).execute()
+
+
 # ---------- HTML newsletter generation (same logic, additions only) ---------- #
 
-def generate_newsletter_html(source_text: str) -> str:
+def generate_newsletter_html(
+    source_text: str,
+    recent_issues_context: str = "",
+    force_big_story: Optional[str] = None,
+    regeneration_note: str = "",
+) -> str:
     issue_date = datetime.now().strftime("%b %d, %Y")
-    user_prompt = (
+    user_prompt_parts = [
         f"Issue Date: {issue_date}\n\n"
         f"Here are the recent posts:\n\n{source_text}"
-    )
+    ]
+    if recent_issues_context:
+        user_prompt_parts.append("\n\n" + recent_issues_context)
+    if force_big_story:
+        user_prompt_parts.append(
+            "\n\n=== EDITORIAL OVERRIDE (MUST FOLLOW) ===\n"
+            f"The Big Story must center on this theme: {force_big_story.strip()}\n"
+            "Treat this as a hard constraint."
+        )
+    if regeneration_note:
+        user_prompt_parts.append("\n\n=== REGENERATION NOTE ===\n" + regeneration_note.strip())
+    user_prompt = "".join(user_prompt_parts)
 
     resp = client.chat.completions.create(
         model=CHAT_MODEL,
         temperature=0.6,
         messages=[
-            {"role": "system", "content": NEWSLETTER_SYSTEM_PROMPT_HTML + OUTPUT_FORMAT_ADDENDUM},
+            {
+                "role": "system",
+                "content": NEWSLETTER_SYSTEM_PROMPT_HTML + OUTPUT_FORMAT_ADDENDUM + BIG_STORY_VARIETY_ADDENDUM,
+            },
             {"role": "user", "content": user_prompt},
         ],
     )
@@ -616,6 +796,7 @@ def main():
     parser.add_argument("--max-posts", type=int, default=MAX_POSTS_DEFAULT)
     parser.add_argument("--output-html", type=str, default="newsletter.html")
     parser.add_argument("--email-to", type=str, default="")
+    parser.add_argument("--force-big-story", type=str, default="")
 
     args = parser.parse_args()
 
@@ -628,8 +809,33 @@ def main():
     print(f"Fetched {len(x_posts)} recent X posts.")
 
     source_text = build_newsletter_source(linkedin_posts, x_posts)
+    recent_issues = fetch_recent_newsletter_issues(supabase, limit=HISTORY_ISSUES_TO_LOAD)
+    recent_issues_context = build_recent_issues_context(recent_issues)
 
-    html = generate_newsletter_html(source_text)
+    html = generate_newsletter_html(
+        source_text,
+        recent_issues_context=recent_issues_context,
+        force_big_story=args.force_big_story or None,
+    )
+
+    novelty_pass, novelty_reason = evaluate_big_story_novelty(html, recent_issues)
+    print(f"Big Story novelty check: {'PASS' if novelty_pass else 'FAIL'} ({novelty_reason})")
+    if not novelty_pass and recent_issues:
+        latest = recent_issues[0]
+        regen_note = (
+            "Your previous draft failed a novelty check against last issue.\n"
+            f"Last issue Big Story title: {latest.get('big_story_title') or 'Unknown'}\n"
+            f"Last issue Big Story summary: {latest.get('big_story_summary') or 'Unknown'}\n"
+            "Regenerate with a materially different Big Story angle."
+        )
+        html = generate_newsletter_html(
+            source_text,
+            recent_issues_context=recent_issues_context,
+            force_big_story=args.force_big_story or None,
+            regeneration_note=regen_note,
+        )
+        novelty_pass_2, novelty_reason_2 = evaluate_big_story_novelty(html, recent_issues)
+        print(f"Big Story novelty re-check: {'PASS' if novelty_pass_2 else 'FAIL'} ({novelty_reason_2})")
 
     with open(args.output_html, "w", encoding="utf-8") as f:
         f.write(html)
@@ -643,6 +849,26 @@ def main():
 
     subject = derive_subject_from_html(html)
     send_newsletter_email_html(subject, html, recipients)
+
+    # Persist this issue for next week's anti-repetition context.
+    try:
+        big_story_title, big_story_summary = extract_big_story_fields(html)
+        now_utc = datetime.now(timezone.utc)
+        source_window_end = now_utc
+        source_window_start = now_utc - timedelta(days=args.lookback_days)
+        save_newsletter_issue(
+            supabase=supabase,
+            issue_date=now_utc.date().isoformat(),
+            subject=subject,
+            html_body=html,
+            big_story_title=big_story_title,
+            big_story_summary=big_story_summary,
+            source_window_start=source_window_start.isoformat(),
+            source_window_end=source_window_end.isoformat(),
+        )
+        print("Saved newsletter issue history record.")
+    except Exception as e:
+        print(f"Warning: failed to save newsletter issue history ({e}).")
 
 
 if __name__ == "__main__":
