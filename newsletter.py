@@ -433,7 +433,7 @@ There's a useful question to ask about any week in AI: are the smartest people m
 
 ---
 
-*The Signal is published weekly by Tenuto Labs. If you need help turning AI insight into business strategy, [let's talk](https://tenutolabs.com).*
+*The Signal is published weekly by Tenuto Labs. If you need AI your team will actually use, built to last and owned by you, [let's talk](https://tenutolabs.com).*
 
 ---
 
@@ -453,7 +453,7 @@ Use HTML tags like <h1>, <h2>, <p>, <ol>, <li>, <strong>, <a>, <div>.\n
 Wrap paragraphs in <p> tags so spacing renders correctly in email clients.\n
 Do not include <script> tags.\n
 Do not use <style> blocks. Inline styles are allowed.\n
-Conclude with a end line "*The Signal is published weekly by Tenuto Labs. If you need help turning AI insight into business strategy, [let's talk](https://tenutolabs.com).*"
+Conclude with a end line "*The Signal is published weekly by Tenuto Labs. If you need AI your team will actually use, built to last and owned by you, [let's talk](https://tenutolabs.com).*"
 """
 
 BIG_STORY_VARIETY_ADDENDUM = """
